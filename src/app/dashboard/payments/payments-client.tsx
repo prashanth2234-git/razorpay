@@ -14,6 +14,7 @@ import {
   ExternalLink,
   CheckCircle2,
   AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +48,9 @@ export interface PaymentRecord {
     recoveryProbability: number;
     recommendedAction: string;
     riskLevel: string;
+    reasoning?: string;
+    modelName?: string;
+    source?: "claude" | "seeded" | "deterministic_fallback";
   }>;
   recoveryActions?: Array<{
     id: string;
@@ -109,6 +113,20 @@ export function PaymentsClient({
   const [selectedPayment, setSelectedPayment] = React.useState<PaymentRecord | null>(null);
   const [fullPaymentDetail, setFullPaymentDetail] = React.useState<DetailedPaymentRecord | null>(null);
 
+  // Live Claude AI analysis state
+  const [analyzingWithAi, setAnalyzingWithAi] = React.useState(false);
+  const [aiAnalysisError, setAiAnalysisError] = React.useState<string | null>(null);
+  const [activeAnalysis, setActiveAnalysis] = React.useState<{
+    diagnosis: string;
+    confidence: number;
+    recoveryProbability: number;
+    recommendedAction: string;
+    riskLevel: string;
+    reasoning: string;
+    modelName: string;
+    source: "claude" | "seeded" | "deterministic_fallback";
+  } | null>(null);
+
   function updateQuery(params: Record<string, string | null>) {
     const current = new URLSearchParams(searchParams.toString());
     Object.entries(params).forEach(([key, value]) => {
@@ -129,15 +147,98 @@ export function PaymentsClient({
   async function handleRowClick(payment: PaymentRecord) {
     setSelectedPayment(payment);
     setFullPaymentDetail(null);
+    setAiAnalysisError(null);
+
+    // Set initial active analysis from payment record if present
+    if (payment.aiAnalyses && payment.aiAnalyses[0]) {
+      const initAi = payment.aiAnalyses[0];
+      setActiveAnalysis({
+        diagnosis: initAi.diagnosis,
+        confidence: initAi.confidence,
+        recoveryProbability: initAi.recoveryProbability,
+        recommendedAction: initAi.recommendedAction,
+        riskLevel: initAi.riskLevel,
+        reasoning: initAi.reasoning || initAi.diagnosis,
+        modelName: initAi.modelName || "claude-3-7-sonnet",
+        source: initAi.source || "seeded",
+      });
+    } else {
+      setActiveAnalysis(null);
+    }
 
     try {
       const res = await fetch(`/api/payments/${payment.id}`);
       if (res.ok) {
         const data = await res.json();
         setFullPaymentDetail(data);
+
+        // If full payment detail has richer reasoning
+        if (data.aiAnalyses && data.aiAnalyses[0]) {
+          const detailAi = data.aiAnalyses[0];
+          setActiveAnalysis((prev) => ({
+            diagnosis: detailAi.diagnosis,
+            confidence: detailAi.confidence,
+            recoveryProbability: detailAi.recoveryProbability,
+            recommendedAction: detailAi.recommendedAction,
+            riskLevel: detailAi.riskLevel,
+            reasoning: detailAi.reasoning || detailAi.diagnosis,
+            modelName: detailAi.modelName || "claude-3-7-sonnet",
+            source: prev?.source === "claude" ? "claude" : "seeded",
+          }));
+        }
       }
     } catch (err) {
       console.error("Failed to fetch payment details:", err);
+    }
+  }
+
+  async function handleAnalyzeWithAi() {
+    if (!selectedPayment) return;
+
+    setAnalyzingWithAi(true);
+    setAiAnalysisError(null);
+
+    try {
+      const res = await fetch(`/api/payments/${selectedPayment.id}/ai-analyze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Claude analysis request failed");
+      }
+
+      // Update active analysis with live Claude response
+      const liveAi = data.analysis;
+      setActiveAnalysis({
+        diagnosis: liveAi.diagnosis,
+        confidence: liveAi.confidence,
+        recoveryProbability: liveAi.recoveryProbability,
+        recommendedAction: liveAi.recommendedAction,
+        riskLevel: liveAi.riskLevel,
+        reasoning: liveAi.reasoning,
+        modelName: data.model || liveAi.modelName || "claude-3-7-sonnet",
+        source: "claude",
+      });
+
+      // Refetch payment detail in background to update audit logs
+      try {
+        const refreshRes = await fetch(`/api/payments/${selectedPayment.id}`);
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json();
+          setFullPaymentDetail(refreshData);
+        }
+      } catch {
+        // Ignore background refresh errors
+      }
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Failed to run Claude AI diagnosis.";
+      setAiAnalysisError(msg);
+    } finally {
+      setAnalyzingWithAi(false);
     }
   }
 
@@ -411,6 +512,22 @@ export function PaymentsClient({
 
             {/* Drawer Content */}
             <div className="flex-1 space-y-5 p-6">
+              {/* Analysis Error Alert */}
+              {aiAnalysisError && (
+                <div className="flex items-center justify-between rounded-app border border-danger/30 bg-danger-soft p-3 text-[12.5px] text-danger">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    <span>{aiAnalysisError}</span>
+                  </div>
+                  <button
+                    onClick={() => setAiAnalysisError(null)}
+                    className="text-danger hover:opacity-70"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
               {/* Payment Summary Box */}
               <div className="grid grid-cols-2 gap-3 rounded-app border border-line bg-surface p-4">
                 <div>
@@ -464,19 +581,21 @@ export function PaymentsClient({
               </div>
 
               {/* AI Diagnosis Card */}
-              {selectedPayment.aiAnalyses && selectedPayment.aiAnalyses[0] ? (
+              {activeAnalysis ? (
                 <AiDiagnosisCard
-                  diagnosis={selectedPayment.aiAnalyses[0].diagnosis}
-                  confidence={selectedPayment.aiAnalyses[0].confidence}
-                  recoveryProbability={selectedPayment.aiAnalyses[0].recoveryProbability}
-                  riskLevel={selectedPayment.aiAnalyses[0].riskLevel}
-                  recommendedAction={selectedPayment.aiAnalyses[0].recommendedAction}
+                  diagnosis={activeAnalysis.diagnosis}
+                  confidence={activeAnalysis.confidence}
+                  recoveryProbability={activeAnalysis.recoveryProbability}
+                  riskLevel={activeAnalysis.riskLevel}
+                  recommendedAction={activeAnalysis.recommendedAction}
                   expectedRecoveryAmount={selectedPayment.amount}
-                  reasoning={
-                    fullPaymentDetail?.aiAnalyses?.[0]?.diagnosis ||
-                    selectedPayment.aiAnalyses[0].diagnosis
-                  }
+                  reasoning={activeAnalysis.reasoning}
                   failureCategory={selectedPayment.failureCategory}
+                  modelName={activeAnalysis.modelName}
+                  source={activeAnalysis.source}
+                  canAnalyze={selectedPayment.status !== PaymentStatus.SUCCESS}
+                  isAnalyzing={analyzingWithAi}
+                  onAnalyzeWithAi={handleAnalyzeWithAi}
                 />
               ) : selectedPayment.status === PaymentStatus.SUCCESS ? (
                 <div className="flex items-center gap-3 rounded-app border border-recovery/30 bg-recovery-soft/40 p-4 text-recovery">
@@ -488,7 +607,23 @@ export function PaymentsClient({
                     </p>
                   </div>
                 </div>
-              ) : null}
+              ) : (
+                <div className="flex flex-col items-center justify-center rounded-app border border-line bg-surface p-6 text-center">
+                  <Sparkles className="h-6 w-6 text-ai" />
+                  <p className="mt-2 text-[13px] font-semibold text-ink">No AI diagnosis on record</p>
+                  <p className="text-[12px] text-ink-muted">Run Claude diagnosis to analyze recovery odds and recommended action.</p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={analyzingWithAi}
+                    onClick={handleAnalyzeWithAi}
+                    className="mt-3 gap-1.5"
+                  >
+                    <Sparkles className="h-3.5 w-3.5 text-ai" />
+                    {analyzingWithAi ? "Analyzing with Claude…" : "Analyze with Claude AI"}
+                  </Button>
+                </div>
+              )}
 
               {/* Failure & Attempt Timeline */}
               {fullPaymentDetail && fullPaymentDetail.attempts && fullPaymentDetail.attempts.length > 0 && (

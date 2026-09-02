@@ -1,6 +1,7 @@
 import * as React from "react";
-import { Bot, Sparkles } from "lucide-react";
+import { Bot, Sparkles, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { formatINR } from "@/lib/utils";
 
 export interface AiDiagnosisCardProps {
@@ -13,6 +14,10 @@ export interface AiDiagnosisCardProps {
   reasoning: string;
   failureCategory?: string | null;
   modelName?: string;
+  source?: "claude" | "seeded" | "deterministic_fallback";
+  onAnalyzeWithAi?: () => void;
+  isAnalyzing?: boolean;
+  canAnalyze?: boolean;
   className?: string;
 }
 
@@ -26,6 +31,10 @@ export function AiDiagnosisCard({
   reasoning,
   failureCategory,
   modelName = "claude-3-7-sonnet",
+  source = "seeded",
+  onAnalyzeWithAi,
+  isAnalyzing = false,
+  canAnalyze = false,
   className = "",
 }: AiDiagnosisCardProps) {
   const confidencePct = Math.round(confidence * 100);
@@ -43,6 +52,14 @@ export function AiDiagnosisCard({
   const riskTone =
     riskLevel === "LOW" ? "recovery" : riskLevel === "MEDIUM" ? "risk" : "danger";
 
+  const sourceBadgeTone = source === "claude" ? "ai" : "neutral";
+  const sourceLabel =
+    source === "claude"
+      ? "Claude 3.7 Sonnet (Live)"
+      : source === "deterministic_fallback"
+      ? "Deterministic Engine"
+      : "Baseline Analysis";
+
   return (
     <div
       className={`rounded-app border border-line bg-surface-raised p-5 shadow-xs ${className}`}
@@ -54,15 +71,37 @@ export function AiDiagnosisCard({
             <Bot className="h-4 w-4" />
           </div>
           <div>
-            <h4 className="text-[13.5px] font-semibold text-ink">AI Diagnosis</h4>
+            <div className="flex items-center gap-2">
+              <h4 className="text-[13.5px] font-semibold text-ink">AI Diagnosis</h4>
+              <Badge tone={sourceBadgeTone} dot={source === "claude"}>
+                {sourceLabel}
+              </Badge>
+            </div>
             <p className="text-[11.5px] text-ink-faint">Model: {modelName}</p>
           </div>
         </div>
-        {failureCategory && (
-          <Badge tone="neutral">
-            {failureCategory.replace(/_/g, " ")}
-          </Badge>
-        )}
+
+        <div className="flex items-center gap-2">
+          {failureCategory && (
+            <Badge tone="neutral">
+              {failureCategory.replace(/_/g, " ")}
+            </Badge>
+          )}
+          {canAnalyze && onAnalyzeWithAi && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={isAnalyzing}
+              onClick={onAnalyzeWithAi}
+              className="h-7 gap-1 text-[12px]"
+            >
+              <RefreshCw
+                className={`h-3 w-3 ${isAnalyzing ? "animate-spin text-ai" : ""}`}
+              />
+              {isAnalyzing ? "Analyzing…" : "Analyze with Claude"}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Metric Tiles Grid */}

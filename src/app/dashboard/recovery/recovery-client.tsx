@@ -8,6 +8,7 @@ import {
   Play,
   Check,
   X,
+  ShieldCheck,
 } from "lucide-react";
 import { Panel, PanelBody, PanelHeader, PanelTitle } from "@/components/ui/panel";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
@@ -17,6 +18,7 @@ import { Stat, StatRow } from "@/components/ui/stat";
 import { formatINR, formatDateTime, truncateId } from "@/lib/utils";
 import { AiDiagnosisCard } from "@/components/recovery/ai-diagnosis-card";
 import { RecoveryStatus, RecoveryActionType } from "@prisma/client";
+import { AiPolicyDecision } from "@/server/recovery/ai-policy";
 
 interface RecoveryActionItem {
   id: string;
@@ -82,6 +84,9 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
   const [feedbackMessage, setFeedbackMessage] = React.useState<{ text: string; type: "success" | "error" } | null>(null);
   const [selectedAction, setSelectedAction] = React.useState<RecoveryActionItem | null>(null);
 
+  // Policy evaluation state for the drawer
+  const [policyDecision, setPolicyDecision] = React.useState<AiPolicyDecision | null>(null);
+
   // Filter actions based on active tab
   const filteredActions = React.useMemo(() => {
     if (activeTab === "PENDING") {
@@ -106,6 +111,25 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
     return actions;
   }, [actions, activeTab]);
 
+  async function handleSelectRow(action: RecoveryActionItem) {
+    setSelectedAction(action);
+    setPolicyDecision(null);
+
+    try {
+      const res = await fetch(`/api/recovery/${action.id}/evaluate`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.decision) {
+          setPolicyDecision(data.decision);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to evaluate policy for action:", err);
+    }
+  }
+
   async function handleApprove(actionId: string, e?: React.MouseEvent) {
     e?.stopPropagation();
     setProcessingId(actionId);
@@ -128,8 +152,13 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
             : a
         )
       );
+      if (selectedAction && selectedAction.id === actionId) {
+        setSelectedAction((prev) =>
+          prev ? { ...prev, status: RecoveryStatus.APPROVED, approvedAt: new Date() } : null
+        );
+      }
       setFeedbackMessage({
-        text: `Action approved successfully. Ready for execution.`,
+        text: `Action approved successfully by operator. Ready for execution.`,
         type: "success",
       });
       router.refresh();
@@ -165,6 +194,11 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
           a.id === actionId ? { ...a, status: RecoveryStatus.REJECTED } : a
         )
       );
+      if (selectedAction && selectedAction.id === actionId) {
+        setSelectedAction((prev) =>
+          prev ? { ...prev, status: RecoveryStatus.REJECTED } : null
+        );
+      }
       setFeedbackMessage({
         text: `Action was marked as rejected and logged to audit trail.`,
         type: "success",
@@ -203,6 +237,11 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
               : a
           )
         );
+        if (selectedAction && selectedAction.id === actionId) {
+          setSelectedAction((prev) =>
+            prev ? { ...prev, status: RecoveryStatus.EXECUTED, executedAt: new Date() } : null
+          );
+        }
         setFeedbackMessage({
           text: `Recovery execution succeeded! Recovered ${formatINR(data.result.recoveredAmount)}.`,
           type: "success",
@@ -213,6 +252,11 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
             a.id === actionId ? { ...a, status: RecoveryStatus.FAILED } : a
           )
         );
+        if (selectedAction && selectedAction.id === actionId) {
+          setSelectedAction((prev) =>
+            prev ? { ...prev, status: RecoveryStatus.FAILED } : null
+          );
+        }
         setFeedbackMessage({
           text: `Recovery attempt was declined: ${data.result.message}`,
           type: "error",
@@ -375,7 +419,7 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
                   <TR
                     key={action.id}
                     clickable
-                    onClick={() => setSelectedAction(action)}
+                    onClick={() => handleSelectRow(action)}
                     className="hover:bg-surface/80"
                   >
                     <TD className="tabular font-medium text-ink">
@@ -532,19 +576,103 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
                 </div>
               </div>
 
-              {/* AI Diagnosis Card */}
-              {selectedAction.aiAnalysis && (
-                <AiDiagnosisCard
-                  diagnosis={selectedAction.aiAnalysis.diagnosis}
-                  confidence={selectedAction.aiAnalysis.confidence}
-                  recoveryProbability={selectedAction.aiAnalysis.recoveryProbability}
-                  riskLevel={selectedAction.aiAnalysis.riskLevel}
-                  recommendedAction={selectedAction.actionType}
-                  expectedRecoveryAmount={selectedAction.payment.amount}
-                  reasoning={selectedAction.aiAnalysis.reasoning}
-                  failureCategory={selectedAction.payment.failureCategory}
-                />
-              )}
+              {/* 1. AI Recommendation Box */}
+              <div className="rounded-app border border-line bg-surface p-4 space-y-3">
+                <div className="flex items-center justify-between border-b border-line pb-2">
+                  <span className="text-[12px] font-semibold uppercase tracking-wider text-ink-faint">
+                    AI Diagnosis &amp; Recommendation
+                  </span>
+                  <Badge tone="ai">Advisory</Badge>
+                </div>
+
+                {selectedAction.aiAnalysis ? (
+                  <AiDiagnosisCard
+                    diagnosis={selectedAction.aiAnalysis.diagnosis}
+                    confidence={selectedAction.aiAnalysis.confidence}
+                    recoveryProbability={selectedAction.aiAnalysis.recoveryProbability}
+                    riskLevel={selectedAction.aiAnalysis.riskLevel}
+                    recommendedAction={selectedAction.aiAnalysis.recommendedAction}
+                    expectedRecoveryAmount={selectedAction.payment.amount}
+                    reasoning={selectedAction.aiAnalysis.reasoning}
+                    failureCategory={selectedAction.payment.failureCategory}
+                  />
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[12.5px] font-medium text-ink">
+                        Baseline Action: {selectedAction.actionType.replace(/_/g, " ")}
+                      </span>
+                    </div>
+                    <Badge tone="neutral">Standard Queue Item</Badge>
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Authoritative Policy Decision Box */}
+              <div className="rounded-app border border-line-strong bg-surface-raised p-4 space-y-3">
+                <div className="flex items-center justify-between border-b border-line pb-2">
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck className="h-4 w-4 text-ai" />
+                    <span className="text-[12px] font-semibold uppercase tracking-wider text-ink">
+                      Deterministic Recovery Policy Gate
+                    </span>
+                  </div>
+                  {policyDecision ? (
+                    <Badge
+                      tone={
+                        policyDecision.status === "AI_RECOMMENDATION_ACCEPTED"
+                          ? "recovery"
+                          : policyDecision.status === "AI_RECOMMENDATION_REQUIRES_APPROVAL"
+                          ? "risk"
+                          : "danger"
+                      }
+                      dot
+                    >
+                      {policyDecision.status === "AI_RECOMMENDATION_ACCEPTED"
+                        ? "Policy: Accepted"
+                        : policyDecision.status === "AI_RECOMMENDATION_REQUIRES_APPROVAL"
+                        ? "Policy: Operator Approval Required"
+                        : policyDecision.status === "AI_RECOMMENDATION_ESCALATED"
+                        ? "Policy: Overridden / Escalated"
+                        : "Policy: Rejected"}
+                    </Badge>
+                  ) : (
+                    <Badge tone="neutral">Checking Policy Rules…</Badge>
+                  )}
+                </div>
+
+                <div className="space-y-2 text-[12.5px]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-ink-faint">Permitted Policy Action:</span>
+                    <span className="font-semibold text-ink">
+                      {policyDecision
+                        ? policyDecision.policyPermittedAction.replace(/_/g, " ")
+                        : selectedAction.actionType.replace(/_/g, " ")}
+                    </span>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-4">
+                    <span className="text-ink-faint shrink-0">Policy Guidance:</span>
+                    <span className="text-right font-medium text-ink-muted">
+                      {policyDecision?.policyReason ||
+                        "Deterministic safety policy rules govern execution."}
+                    </span>
+                  </div>
+
+                  {policyDecision?.policyFlags && policyDecision.policyFlags.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1 pt-1">
+                      {policyDecision.policyFlags.map((flag) => (
+                        <span
+                          key={flag}
+                          className="rounded bg-surface px-1.5 py-0.5 text-[10.5px] font-mono text-ink-faint"
+                        >
+                          {flag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {/* Approval History */}
               {selectedAction.approvedBy && (
