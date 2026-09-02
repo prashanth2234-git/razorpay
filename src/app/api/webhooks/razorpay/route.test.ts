@@ -12,6 +12,7 @@ vi.mock("@/lib/db", () => ({
     },
     merchant: {
       findFirst: vi.fn(),
+      create: vi.fn(),
     },
     customer: {
       findFirst: vi.fn(),
@@ -347,5 +348,42 @@ describe("POST /api/webhooks/razorpay (Milestone 6 Step 7B)", () => {
     expect(body.message).toContain("order.paid");
 
     expect(db.payment.create).not.toHaveBeenCalled();
+  });
+
+  it("gracefully auto-initializes default merchant and ingests payment when merchant table was empty", async () => {
+    vi.mocked(db.merchant.findFirst).mockResolvedValueOnce(null);
+    vi.mocked(db.merchant.create).mockResolvedValueOnce({
+      id: "merch_kaveri_demo_01",
+      businessName: "Kaveri Textiles Pvt. Ltd.",
+      email: "finance@kaveritextiles.com",
+      currency: "INR",
+      timezone: "Asia/Kolkata",
+      autoRecoveryEnabled: true,
+      confidenceThreshold: 0.8,
+      maxRetryAttempts: 3,
+      config: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const signature = computeRazorpayWebhookSignature(validPaymentFailedPayload, testSecret);
+    const eventId = "evt_init_merchant_001";
+
+    const request = new Request("http://localhost:3000/api/webhooks/razorpay", {
+      method: "POST",
+      headers: {
+        "x-razorpay-signature": signature,
+        "x-razorpay-event-id": eventId,
+      },
+      body: validPaymentFailedPayload,
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    const body = await response.json();
+    expect(body.status).toBe("success");
+    expect(db.merchant.create).toHaveBeenCalledTimes(1);
+    expect(db.payment.create).toHaveBeenCalledTimes(1);
   });
 });

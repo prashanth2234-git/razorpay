@@ -123,12 +123,20 @@ export async function POST(request: Request) {
   }
 
   // 7. Resolve Merchant: Do not trust merchant ID from payload
-  const merchant = await db.merchant.findFirst();
+  let merchant = await db.merchant.findFirst();
   if (!merchant) {
-    return NextResponse.json(
-      { error: "Merchant record not found in system" },
-      { status: 500 }
-    );
+    merchant = await db.merchant.create({
+      data: {
+        id: "merch_kaveri_demo_01",
+        businessName: "Kaveri Textiles Pvt. Ltd.",
+        email: "finance@kaveritextiles.com",
+        currency: "INR",
+        timezone: "Asia/Kolkata",
+        autoRecoveryEnabled: true,
+        confidenceThreshold: 0.8,
+        maxRetryAttempts: 3,
+      },
+    });
   }
 
   try {
