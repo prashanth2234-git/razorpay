@@ -20,6 +20,8 @@ export const metadata: Metadata = {
     "RazorRecover diagnoses failed payments, predicts recovery odds, and orchestrates the next best action — with a human always in the loop.",
 };
 
+import { SessionProvider } from "@/components/providers/session-provider";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -28,7 +30,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${plexSans.variable} ${plexMono.variable} antialiased`}>
-        {children}
+        <SessionProvider>{children}</SessionProvider>
       </body>
     </html>
   );

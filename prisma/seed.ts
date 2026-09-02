@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
+import bcrypt from "bcryptjs";
 import {
   PrismaClient,
   UserRole,
@@ -130,6 +131,10 @@ export async function main() {
 
   // 3. Create Users
   console.log("👥 Creating 4 Merchant Users...");
+  const adminPasswordHash = bcrypt.hashSync("admin123", 10);
+  const operatorPasswordHash = bcrypt.hashSync("operator123", 10);
+  const viewerPasswordHash = bcrypt.hashSync("viewer123", 10);
+
   const users = await Promise.all([
     prisma.user.create({
       data: {
@@ -138,7 +143,7 @@ export async function main() {
         name: "Farhan Merchant",
         email: "farhan@kaveritextiles.com",
         role: UserRole.ADMIN,
-        passwordHash: "$2a$10$e1c8rU0vD1Q8/W7jYf8yXe5a1sT8gY9h.a2F8k3B6j9E2D1c4b7a",
+        passwordHash: adminPasswordHash,
       },
     }),
     prisma.user.create({
@@ -148,7 +153,7 @@ export async function main() {
         name: "Priyanka Sharma",
         email: "priyanka@kaveritextiles.com",
         role: UserRole.OPERATOR,
-        passwordHash: "$2a$10$e1c8rU0vD1Q8/W7jYf8yXe5a1sT8gY9h.a2F8k3B6j9E2D1c4b7a",
+        passwordHash: operatorPasswordHash,
       },
     }),
     prisma.user.create({
@@ -158,7 +163,7 @@ export async function main() {
         name: "Vikram Adiga",
         email: "vikram@kaveritextiles.com",
         role: UserRole.OPERATOR,
-        passwordHash: "$2a$10$e1c8rU0vD1Q8/W7jYf8yXe5a1sT8gY9h.a2F8k3B6j9E2D1c4b7a",
+        passwordHash: operatorPasswordHash,
       },
     }),
     prisma.user.create({
@@ -168,7 +173,7 @@ export async function main() {
         name: "Sunita Rao",
         email: "sunita@kaveritextiles.com",
         role: UserRole.VIEWER,
-        passwordHash: "$2a$10$e1c8rU0vD1Q8/W7jYf8yXe5a1sT8gY9h.a2F8k3B6j9E2D1c4b7a",
+        passwordHash: viewerPasswordHash,
       },
     }),
   ]);
