@@ -3,6 +3,24 @@ import { POST } from "./route";
 import { computeRazorpayWebhookSignature } from "@/server/razorpay/webhook";
 import { db } from "@/lib/db";
 import { ActorType, AuditEventType, FailureCategory, PaymentMethod, PaymentStatus } from "@prisma/client";
+import { processFailedPayment } from "@/server/recovery/process-failed-payment";
+
+vi.mock("@/server/recovery/process-failed-payment", () => ({
+  processFailedPayment: vi.fn().mockResolvedValue({
+    success: true,
+    paymentId: "pay_rec_001",
+    aiAnalysisId: "ai_mock_001",
+    recoveryActionId: "rec_mock_001",
+    aiProvider: "anthropic",
+    isFallback: false,
+    recommendedAction: "SEND_REMINDER",
+    policyPermittedAction: "SEND_REMINDER",
+    policyStatus: "AI_RECOMMENDATION_ACCEPTED",
+    requiresHumanApproval: false,
+    recoveryStatus: "RECOMMENDED",
+    expectedRecoveryAmount: 324900,
+  }),
+}));
 
 vi.mock("@/lib/db", () => ({
   db: {
@@ -385,5 +403,63 @@ describe("POST /api/webhooks/razorpay (Milestone 6 Step 7B)", () => {
     expect(body.status).toBe("success");
     expect(db.merchant.create).toHaveBeenCalledTimes(1);
     expect(db.payment.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("triggers automated AI diagnosis orchestration on payment.failed and includes recovery summary", async () => {
+    const signature = computeRazorpayWebhookSignature(validPaymentFailedPayload, testSecret);
+    const eventId = "evt_ai_test_001";
+
+    const request = new Request("http://localhost:3000/api/webhooks/razorpay", {
+      method: "POST",
+      headers: {
+        "x-razorpay-signature": signature,
+        "x-razorpay-event-id": eventId,
+      },
+      body: validPaymentFailedPayload,
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    const body = await response.json();
+    expect(body.status).toBe("success");
+    expect(body.recovery).toEqual({
+      actionType: "SEND_REMINDER",
+      status: "RECOMMENDED",
+      requiresHumanApproval: false,
+      isFallback: false,
+      aiProvider: "anthropic",
+    });
+
+    expect(processFailedPayment).toHaveBeenCalledWith(
+      "pay_rec_001",
+      expect.objectContaining({ source: "webhook" })
+    );
+  });
+
+  it("returns HTTP 200 and continues cleanly even if AI processing throws an error", async () => {
+    vi.mocked(processFailedPayment).mockRejectedValueOnce(
+      new Error("AI service temporary timeout")
+    );
+
+    const signature = computeRazorpayWebhookSignature(validPaymentFailedPayload, testSecret);
+    const eventId = "evt_ai_error_test_001";
+
+    const request = new Request("http://localhost:3000/api/webhooks/razorpay", {
+      method: "POST",
+      headers: {
+        "x-razorpay-signature": signature,
+        "x-razorpay-event-id": eventId,
+      },
+      body: validPaymentFailedPayload,
+    });
+
+    const response = await POST(request);
+    // Webhook must still acknowledge receipt with 200
+    expect(response.status).toBe(200);
+
+    const body = await response.json();
+    expect(body.status).toBe("success");
+    expect(body.recovery).toBeNull();
   });
 });

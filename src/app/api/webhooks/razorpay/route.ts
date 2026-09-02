@@ -14,6 +14,7 @@ import {
   Prisma,
 } from "@prisma/client";
 import { createAuditLog } from "@/server/services/auditService";
+import { processFailedPayment } from "@/server/recovery/process-failed-payment";
 
 /**
  * Razorpay Webhook Ingestion Route
@@ -271,7 +272,17 @@ export async function POST(request: Request) {
       } as Prisma.InputJsonValue,
     });
 
-    // 13. Fast 200 response to acknowledge receipt to Razorpay
+    // 13. Trigger automated AI diagnosis and deterministic recovery policy recommendation
+    let recoveryDecision = null;
+    try {
+      recoveryDecision = await processFailedPayment(paymentRecord.id, {
+        source: "webhook",
+      });
+    } catch (aiErr) {
+      console.error("AI recovery diagnosis error after webhook ingestion:", aiErr);
+    }
+
+    // 14. Fast 200 response to acknowledge receipt to Razorpay
     return NextResponse.json(
       {
         status: "success",
@@ -280,6 +291,15 @@ export async function POST(request: Request) {
         paymentId: paymentRecord.id,
         providerPaymentId: paymentData.id,
         failureCategory: paymentData.failureCategory,
+        recovery: recoveryDecision
+          ? {
+              actionType: recoveryDecision.policyPermittedAction,
+              status: recoveryDecision.recoveryStatus,
+              requiresHumanApproval: recoveryDecision.requiresHumanApproval,
+              isFallback: recoveryDecision.isFallback,
+              aiProvider: recoveryDecision.aiProvider,
+            }
+          : null,
       },
       { status: 200 }
     );
