@@ -106,38 +106,75 @@ export default async function OverviewPage() {
         />
       </StatRow>
 
-      {/* Visual placeholding panels */}
+      {/* Executive Summary & Governance Overview */}
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Panel className="lg:col-span-2">
           <PanelHeader>
-            <PanelTitle>Recovery Performance Over Time</PanelTitle>
-            <span className="text-[12px] text-ink-faint">Last 90 days</span>
+            <PanelTitle>Recovery Performance &amp; Revenue Impact</PanelTitle>
+            <Badge tone="recovery">Live Stream</Badge>
           </PanelHeader>
-          <PanelBody>
-            <div className="flex h-56 flex-col items-center justify-center gap-2 text-center text-ink-faint">
-              <p className="text-[13px] font-medium text-ink">
-                {summary.totalPaymentsCount.toLocaleString("en-IN")} total payment transactions indexed
+          <PanelBody className="flex flex-col justify-between space-y-4 p-5">
+            <div className="space-y-2">
+              <p className="text-[13px] leading-relaxed text-ink-muted">
+                RazorRecover continuously triages failed payment webhooks through multi-model AI diagnostics and validates every recovery action against merchant-defined policy thresholds.
               </p>
-              <p className="text-[12px] text-ink-muted">
-                Interactive Recharts time-series will render here in upcoming analytics milestone.
-              </p>
+              <div className="grid grid-cols-2 gap-3 pt-2 sm:grid-cols-3">
+                <div className="rounded-app border border-line bg-surface p-3">
+                  <span className="text-[11.5px] text-ink-faint">Total Indexed</span>
+                  <p className="text-[15px] font-semibold text-ink">
+                    {summary.totalPaymentsCount.toLocaleString("en-IN")}
+                  </p>
+                </div>
+                <div className="rounded-app border border-line bg-surface p-3">
+                  <span className="text-[11.5px] text-ink-faint">Recovered Revenue</span>
+                  <p className="text-[15px] font-semibold text-recovery">
+                    {formatINR(summary.revenueRecovered)}
+                  </p>
+                </div>
+                <div className="rounded-app border border-line bg-surface p-3">
+                  <span className="text-[11.5px] text-ink-faint">Effective Recovery Rate</span>
+                  <p className="text-[15px] font-semibold text-ink">
+                    {formatPercent(summary.recoveryRate)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-line pt-3">
+              <span className="text-[12px] text-ink-faint">
+                Interactive time-series, breakdown charts &amp; cohort metrics
+              </span>
+              <a
+                href="/dashboard/analytics"
+                className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-ink hover:underline"
+              >
+                View Analytics Dashboard &rarr;
+              </a>
             </div>
           </PanelBody>
         </Panel>
 
         <Panel>
           <PanelHeader>
-            <PanelTitle>Failure Categories</PanelTitle>
-            <Badge tone="risk">Realtime</Badge>
+            <PanelTitle>Safety &amp; Governance</PanelTitle>
+            <Badge tone="ai">Active</Badge>
           </PanelHeader>
-          <PanelBody>
-            <div className="flex h-56 flex-col items-center justify-center gap-2 text-center text-ink-faint">
-              <p className="text-[13px] font-medium text-ink">
-                {summary.failedPaymentsCount.toLocaleString("en-IN")} active failure events
-              </p>
-              <p className="text-[12px] text-ink-muted">
-                Category breakdown charts scheduled for Milestone 4.
-              </p>
+          <PanelBody className="space-y-3.5 p-5 text-[12.5px]">
+            <div className="flex items-start justify-between border-b border-line pb-2.5">
+              <span className="text-ink-muted">AI Role</span>
+              <Badge tone="ai">Advisory Only</Badge>
+            </div>
+            <div className="flex items-start justify-between border-b border-line pb-2.5">
+              <span className="text-ink-muted">Policy Gate</span>
+              <Badge tone="info">Deterministic</Badge>
+            </div>
+            <div className="flex items-start justify-between border-b border-line pb-2.5">
+              <span className="text-ink-muted">Confidence Threshold</span>
+              <span className="font-semibold text-ink">85%</span>
+            </div>
+            <div className="flex items-start justify-between">
+              <span className="text-ink-muted">Execution Mode</span>
+              <Badge tone="neutral">Test Mode (Mock)</Badge>
             </div>
           </PanelBody>
         </Panel>

@@ -1,16 +1,41 @@
+import { getCurrentUser } from "@/server/auth";
+import { getCustomers } from "@/server/services/customerService";
 import { PageHeader } from "@/components/layout/page-header";
-import { Panel, PanelBody } from "@/components/ui/panel";
+import { CustomersClient } from "./customers-client";
 
-export default function Page() {
+export default async function CustomersPage() {
+  const user = await getCurrentUser();
+  const merchantId = user?.merchantId || "merch_kaveri_demo_01";
+
+  const rawData = await getCustomers(merchantId, { page: 1, pageSize: 15 });
+
+  const initialData = {
+    customers: rawData.customers.map((c) => ({
+      id: c.id,
+      merchantId: c.merchantId,
+      name: c.name,
+      email: c.email,
+      phone: c.phone,
+      lifetimeValue: c.lifetimeValue,
+      successfulPaymentCount: c.successfulPaymentCount,
+      failedPaymentCount: c.failedPaymentCount,
+      createdAt: c.createdAt.toISOString(),
+      updatedAt: c.updatedAt.toISOString(),
+    })),
+    total: rawData.total,
+    page: rawData.page,
+    pageSize: rawData.pageSize,
+    totalPages: rawData.totalPages,
+  };
+
   return (
     <>
-      <PageHeader title="Customers" description="Payment behavior and recovery history by customer." />
-      <Panel>
-        <PanelBody className="flex flex-col items-center gap-1 py-16 text-center">
-          <p className="text-[13.5px] font-medium text-ink">Coming in Milestone 4</p>
-          <p className="text-[13px] text-ink-muted">This screen is scaffolded and will be built out next.</p>
-        </PanelBody>
-      </Panel>
+      <PageHeader
+        title="Customers"
+        description="Payment behavior, transaction records, and recovery metrics by customer."
+      />
+      <CustomersClient initialData={initialData} />
     </>
   );
 }
+

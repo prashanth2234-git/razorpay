@@ -282,3 +282,29 @@ export function canPerformOperationalActions(role: UserRole | string): boolean {
 export function canManageSettings(role: UserRole | string): boolean {
   return role === UserRole.ADMIN;
 }
+
+// ---------------------------------------------------------------------------
+// Customer Types
+// ---------------------------------------------------------------------------
+
+export interface CustomerItem {
+  id: string;
+  merchantId: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  lifetimeValue: number;
+  successfulPaymentCount: number;
+  failedPaymentCount: number;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+export interface CustomersResponse {
+  customers: CustomerItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+

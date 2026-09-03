@@ -166,7 +166,7 @@ export default function LoginPage() {
           </div>
           <h1 className="text-[22px] font-semibold text-ink">Sign in to RazorRecover</h1>
           <p className="mt-1 text-[13px] text-ink-muted">
-            AI-powered autonomous payment recovery platform
+            Policy-governed revenue recovery with AI diagnostics
           </p>
         </div>
 
