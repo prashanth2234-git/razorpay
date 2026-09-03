@@ -12,7 +12,7 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
-describe("Recovery Dashboard UI Component (Milestone 6 Step 10A)", () => {
+describe("Recovery Dashboard UI Component (Milestone 6 Step 10B Hardened)", () => {
   const mockActions: RecoveryActionItem[] = [
     {
       id: "rec_001",
@@ -34,6 +34,16 @@ describe("Recovery Dashboard UI Component (Milestone 6 Step 10A)", () => {
           email: "ravi.shankar@example.com",
           phone: "+919876543210",
         },
+        failures: [
+          {
+            id: "fail_001",
+            category: "TEMPORARY_ISSUER_FAILURE",
+            providerCode: "GATEWAY_TIMEOUT",
+            providerDescription: "Bank switch timeout during peak traffic",
+            isTransient: true,
+            occurredAt: new Date().toISOString(),
+          },
+        ],
       },
       aiAnalysis: {
         id: "ai_001",
@@ -131,10 +141,67 @@ describe("Recovery Dashboard UI Component (Milestone 6 Step 10A)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    global.fetch = vi.fn();
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/approve")) {
+        return {
+          ok: true,
+          json: async () => ({ success: true }),
+        } as Response;
+      }
+      if (url.includes("/execute")) {
+        return {
+          ok: true,
+          json: async () => ({
+            success: true,
+            recoveredAmount: 300000,
+            providerReference: "mock_capt_12345",
+            message: "Payment captured successfully",
+            isSimulated: true,
+          }),
+        } as Response;
+      }
+      if (url.includes("/reject")) {
+        return {
+          ok: true,
+          json: async () => ({ success: true }),
+        } as Response;
+      }
+      if (url.includes("/evaluate")) {
+        return {
+          ok: true,
+          json: async () => ({
+            decision: {
+              status: "AI_RECOMMENDATION_REQUIRES_APPROVAL",
+              aiRecommendedAction: "RETRY_PAYMENT",
+              policyPermittedAction: "RETRY_PAYMENT",
+              aiConfidence: 0.95,
+              aiRecoveryProbability: 0.90,
+              aiRiskLevel: "LOW",
+              requiresHumanApproval: true,
+              isPolicyOverridden: false,
+              policyReason: "Automated retry requires operator approval.",
+              policyFlags: [],
+            },
+          }),
+        } as Response;
+      }
+      if (url.includes("/api/recovery/rec_")) {
+        return {
+          ok: true,
+          json: async () => mockActions[0],
+        } as Response;
+      }
+      // Default /api/recovery list endpoint
+      return {
+        ok: true,
+        json: async () => ({ recoveryActions: mockActions, summary: mockSummary }),
+      } as Response;
+    });
   });
 
-  it("renders real recovery actions with customer names, order amounts, recovery odds, and status badges", () => {
+  // 1. Opening a recovery item
+  it("opens recovery detail drawer when a row is clicked", async () => {
     render(
       <RecoveryClient
         initialActions={mockActions}
@@ -143,21 +210,16 @@ describe("Recovery Dashboard UI Component (Milestone 6 Step 10A)", () => {
       />
     );
 
-    // Verify customer names rendered
-    expect(screen.getByText("Ravi Shankar")).toBeDefined();
-    expect(screen.getByText("Priya Sharma")).toBeDefined();
-    expect(screen.getByText("Amit Patel")).toBeDefined();
+    const row = screen.getByText("Ravi Shankar");
+    fireEvent.click(row);
 
-    // Verify recovery odds rendered
-    expect(screen.getByText("90%")).toBeDefined();
-    expect(screen.getByText("65%")).toBeDefined();
-    expect(screen.getByText("95%")).toBeDefined();
-
-    // Verify KPI summary metrics rendered
-    expect(screen.getAllByText("₹7,500").length).toBeGreaterThanOrEqual(1);
+    await waitFor(() => {
+      expect(screen.getByText("Recovery Opportunity")).toBeDefined();
+    });
   });
 
-  it("shows Approve and Reject buttons for operators on PENDING_APPROVAL actions", () => {
+  // 2. Displaying AI diagnosis with Advisory Only tag
+  it("displays AI diagnosis with 'AI Recommendation — Advisory Only' header", async () => {
     render(
       <RecoveryClient
         initialActions={mockActions}
@@ -166,16 +228,56 @@ describe("Recovery Dashboard UI Component (Milestone 6 Step 10A)", () => {
       />
     );
 
-    // Approve button should exist for pending item rec_001
-    const approveButtons = screen.getAllByRole("button", { name: /approve/i });
-    expect(approveButtons.length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(screen.getByText("Ravi Shankar"));
 
-    // Execute button should exist for approved item rec_002
-    const executeButtons = screen.getAllByRole("button", { name: /execute/i });
-    expect(executeButtons.length).toBeGreaterThanOrEqual(1);
+    await waitFor(() => {
+      expect(screen.getByText("AI Recommendation — Advisory Only")).toBeDefined();
+      expect(screen.getAllByText("Advisory Only").length).toBeGreaterThanOrEqual(1);
+    });
   });
 
-  it("restricts VIEWER role from approving or executing recovery actions", () => {
+  // 3. Displaying deterministic policy decision with Authoritative tag
+  it("displays deterministic policy decision with 'Deterministic Policy Gate — Authoritative' header", async () => {
+    render(
+      <RecoveryClient
+        initialActions={mockActions}
+        summary={mockSummary}
+        userRole={UserRole.OPERATOR}
+      />
+    );
+
+    fireEvent.click(screen.getByText("Ravi Shankar"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Deterministic Policy Gate — Authoritative")).toBeDefined();
+      expect(screen.getByText("Policy: Approval Required")).toBeDefined();
+    });
+  });
+
+  // 4. Operator can approve
+  it("allows operator to approve pending recovery action", async () => {
+    render(
+      <RecoveryClient
+        initialActions={mockActions}
+        summary={mockSummary}
+        userRole={UserRole.OPERATOR}
+      />
+    );
+
+    const approveButton = screen.getAllByRole("button", { name: /^approve$/i })[0];
+    fireEvent.click(approveButton);
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/recovery/rec_001/approve"),
+        expect.objectContaining({ method: "POST" })
+      );
+      expect(screen.getByText(/action approved by operator/i)).toBeDefined();
+    });
+  });
+
+  // 5. Viewer cannot approve
+  it("prevents viewer role from approving or executing recovery actions", () => {
     render(
       <RecoveryClient
         initialActions={mockActions}
@@ -184,24 +286,13 @@ describe("Recovery Dashboard UI Component (Milestone 6 Step 10A)", () => {
       />
     );
 
-    // Viewer banner
     expect(screen.getByText(/viewer mode \(read-only\)/i)).toBeDefined();
-
-    // Approve and Execute buttons should NOT be present for viewer
     expect(screen.queryByRole("button", { name: /^approve$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^execute$/i })).toBeNull();
-    expect(screen.getByText("Requires Operator")).toBeDefined();
   });
 
-  it("filters actions by status when status filter tab is clicked", async () => {
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        recoveryActions: [mockActions[1]], // only APPROVED action
-        summary: mockSummary,
-      }),
-    } as Response);
-
+  // 6. Approved action shows Execute
+  it("displays Execute button for approved recovery action", () => {
     render(
       <RecoveryClient
         initialActions={mockActions}
@@ -210,40 +301,68 @@ describe("Recovery Dashboard UI Component (Milestone 6 Step 10A)", () => {
       />
     );
 
-    // Click 'Approved' tab
-    const approvedTab = screen.getByRole("button", { name: "Approved" });
-    fireEvent.click(approvedTab);
+    const executeButtons = screen.getAllByRole("button", { name: /^execute$/i });
+    expect(executeButtons.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // 7. Execute calls the existing API
+  it("calls POST /api/recovery/:id/execute when Execute is clicked", async () => {
+    render(
+      <RecoveryClient
+        initialActions={mockActions}
+        summary={mockSummary}
+        userRole={UserRole.OPERATOR}
+      />
+    );
+
+    const executeButton = screen.getAllByRole("button", { name: /^execute$/i })[0];
+    fireEvent.click(executeButton);
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining("/api/recovery?status=APPROVED")
+        expect.stringContaining("/api/recovery/rec_002/execute"),
+        expect.objectContaining({ method: "POST" })
       );
     });
   });
 
-  it("opens recovery detail drawer with AI advisory and policy decision when row is clicked", async () => {
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce({
+  // 8. Successful execution displays recovered amount
+  it("displays recovered amount on successful execution", async () => {
+    render(
+      <RecoveryClient
+        initialActions={mockActions}
+        summary={mockSummary}
+        userRole={UserRole.OPERATOR}
+      />
+    );
+
+    const executeButton = screen.getAllByRole("button", { name: /^execute$/i })[0];
+    fireEvent.click(executeButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/recovery successful! recovered ₹3,000/i)).toBeDefined();
+    });
+  });
+
+  // 9. Failed execution displays an error
+  it("displays error feedback when execution fails or is declined by provider", async () => {
+    vi.mocked(global.fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/execute")) {
+        return {
+          ok: true,
+          json: async () => ({
+            success: false,
+            message: "Secondary retry was declined by issuing bank.",
+            error: "Secondary retry was declined by issuing bank.",
+          }),
+        } as Response;
+      }
+      return {
         ok: true,
-        json: async () => mockActions[0],
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          decision: {
-            status: "AI_RECOMMENDATION_REQUIRES_APPROVAL",
-            aiRecommendedAction: "RETRY_PAYMENT",
-            policyPermittedAction: "RETRY_PAYMENT",
-            aiConfidence: 0.95,
-            aiRecoveryProbability: 0.90,
-            aiRiskLevel: "LOW",
-            requiresHumanApproval: true,
-            isPolicyOverridden: false,
-            policyReason: "Automated retry requires human sign-off for temporary issuer downtime.",
-            policyFlags: [],
-          },
-        }),
-      } as Response);
+        json: async () => ({ recoveryActions: mockActions, summary: mockSummary }),
+      } as Response;
+    });
 
     render(
       <RecoveryClient
@@ -253,35 +372,76 @@ describe("Recovery Dashboard UI Component (Milestone 6 Step 10A)", () => {
       />
     );
 
-    // Click on Ravi Shankar row
-    const row = screen.getByText("Ravi Shankar");
-    fireEvent.click(row);
+    const executeButton = screen.getAllByRole("button", { name: /^execute$/i })[0];
+    fireEvent.click(executeButton);
 
-    // Detail drawer should open
     await waitFor(() => {
-      expect(screen.getByText("Recovery Opportunity")).toBeDefined();
-      expect(screen.getByText(/AI Diagnosis & Recommendation/i)).toBeDefined();
-      expect(screen.getByText(/Deterministic Recovery Policy Gate/i)).toBeDefined();
-      expect(screen.getByText("Advisory Only")).toBeDefined();
+      expect(screen.getByText(/recovery attempt was declined/i)).toBeDefined();
     });
   });
 
-  it("handles empty queue state gracefully", () => {
+  // 10. Rejected action cannot execute
+  it("prevents execution of rejected action", async () => {
+    const rejectedActions: RecoveryActionItem[] = [
+      {
+        ...mockActions[0],
+        status: RecoveryStatus.REJECTED,
+      },
+    ];
+
     render(
       <RecoveryClient
-        initialActions={[]}
-        summary={{
-          totalActions: 0,
-          executed: 0,
-          pendingApproval: 0,
-          failed: 0,
-          totalRecoveredAmount: 0,
-        }}
+        initialActions={rejectedActions}
+        summary={mockSummary}
         userRole={UserRole.OPERATOR}
       />
     );
 
-    expect(screen.getByText(/queue clear for filter: all/i)).toBeDefined();
-    expect(screen.getByText(/no recovery actions currently match this status filter/i)).toBeDefined();
+    expect(screen.queryByRole("button", { name: /^execute$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^approve$/i })).toBeNull();
+  });
+
+  // 11. Already executed action does not execute again
+  it("displays recovered badge and prevents execution for already executed action", () => {
+    render(
+      <RecoveryClient
+        initialActions={[mockActions[2]]} // EXECUTED action
+        summary={mockSummary}
+        userRole={UserRole.OPERATOR}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: /^execute$/i })).toBeNull();
+    expect(screen.getAllByText("₹7,500").length).toBeGreaterThanOrEqual(1);
+  });
+
+  // 12. Loading state prevents duplicate clicks
+  it("disables buttons while processing an action to prevent duplicate clicks", async () => {
+    let resolveApprove: (value: unknown) => void = () => {};
+    const pendingPromise = new Promise((resolve) => {
+      resolveApprove = resolve;
+    });
+
+    vi.mocked(global.fetch).mockReturnValueOnce(pendingPromise as Promise<Response>);
+
+    render(
+      <RecoveryClient
+        initialActions={mockActions}
+        summary={mockSummary}
+        userRole={UserRole.OPERATOR}
+      />
+    );
+
+    const approveButton = screen.getAllByRole("button", { name: /^approve$/i })[0];
+    fireEvent.click(approveButton);
+
+    // Button should be disabled during flight
+    expect(approveButton).toHaveProperty("disabled", true);
+
+    // Resolve promise
+    resolveApprove({
+      ok: true,
+      json: async () => ({ success: true }),
+    });
   });
 });

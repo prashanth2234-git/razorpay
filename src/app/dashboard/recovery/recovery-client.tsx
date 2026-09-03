@@ -15,6 +15,8 @@ import {
   History,
   Info,
   Lock,
+  Sparkles,
+  HelpCircle,
 } from "lucide-react";
 import { Panel, PanelBody, PanelHeader, PanelTitle } from "@/components/ui/panel";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
@@ -140,16 +142,16 @@ export function RecoveryClient({
   } | null>(null);
   const [selectedAction, setSelectedAction] = React.useState<RecoveryActionItem | null>(null);
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
+  const [showConfirmModal, setShowConfirmModal] = React.useState(false);
 
   // Policy evaluation decision for drawer
   const [policyDecision, setPolicyDecision] = React.useState<ClientAiPolicyDecision | null>(null);
 
   const isViewer = !canPerformOperationalActions(userRole as UserRole);
 
-  // Fetch actions from API when status filter changes
-  async function fetchActions(tab: StatusFilterTab) {
+  // Fetch actions from API when status filter changes or after operational action
+  async function fetchActions(tab: StatusFilterTab = activeTab) {
     setIsLoading(true);
-    setFeedbackMessage(null);
 
     try {
       const url =
@@ -188,9 +190,9 @@ export function RecoveryClient({
     setSelectedAction(action);
     setPolicyDecision(null);
     setIsLoadingDetail(true);
+    setShowConfirmModal(false);
 
     try {
-      // Parallel fetch full action details and real-time policy evaluation
       const [actionRes, evalRes] = await Promise.all([
         fetch(`/api/recovery/${action.id}`),
         fetch(`/api/recovery/${action.id}/evaluate`, { method: "POST" }),
@@ -216,7 +218,7 @@ export function RecoveryClient({
 
   async function handleApprove(actionId: string, e?: React.MouseEvent) {
     e?.stopPropagation();
-    if (isViewer) return;
+    if (isViewer || processingId) return;
 
     setProcessingId(actionId);
     setFeedbackMessage(null);
@@ -241,17 +243,19 @@ export function RecoveryClient({
       );
 
       if (selectedAction && selectedAction.id === actionId) {
-        setSelectedAction((prev) =>
-          prev
-            ? { ...prev, status: RecoveryStatus.APPROVED, approvedAt: updatedApprovedAt }
-            : null
-        );
+        // Refetch full action to update drawer
+        const detailRes = await fetch(`/api/recovery/${actionId}`);
+        if (detailRes.ok) {
+          const updatedFullAction = await detailRes.json();
+          setSelectedAction(updatedFullAction);
+        }
       }
 
       setFeedbackMessage({
         text: "Action approved by operator. Ready for execution.",
         type: "success",
       });
+      fetchActions(activeTab);
       router.refresh();
     } catch (err) {
       setFeedbackMessage({
@@ -265,7 +269,7 @@ export function RecoveryClient({
 
   async function handleReject(actionId: string, e?: React.MouseEvent) {
     e?.stopPropagation();
-    if (isViewer) return;
+    if (isViewer || processingId) return;
 
     setProcessingId(actionId);
     setFeedbackMessage(null);
@@ -287,15 +291,18 @@ export function RecoveryClient({
       );
 
       if (selectedAction && selectedAction.id === actionId) {
-        setSelectedAction((prev) =>
-          prev ? { ...prev, status: RecoveryStatus.REJECTED } : null
-        );
+        const detailRes = await fetch(`/api/recovery/${actionId}`);
+        if (detailRes.ok) {
+          const updatedFullAction = await detailRes.json();
+          setSelectedAction(updatedFullAction);
+        }
       }
 
       setFeedbackMessage({
         text: "Action was rejected and recorded in immutable audit log.",
         type: "info",
       });
+      fetchActions(activeTab);
       router.refresh();
     } catch (err) {
       setFeedbackMessage({
@@ -309,10 +316,11 @@ export function RecoveryClient({
 
   async function handleExecute(actionId: string, e?: React.MouseEvent) {
     e?.stopPropagation();
-    if (isViewer) return;
+    if (isViewer || processingId) return;
 
     setProcessingId(actionId);
     setFeedbackMessage(null);
+    setShowConfirmModal(false);
 
     try {
       const res = await fetch(`/api/recovery/${actionId}/execute`, {
@@ -340,27 +348,27 @@ export function RecoveryClient({
         );
 
         if (selectedAction && selectedAction.id === actionId) {
-          setSelectedAction((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  status: RecoveryStatus.EXECUTED,
-                  executedAt: now,
-                }
-              : null
-          );
+          const detailRes = await fetch(`/api/recovery/${actionId}`);
+          if (detailRes.ok) {
+            const updatedFullAction = await detailRes.json();
+            setSelectedAction(updatedFullAction);
+          }
         }
 
         setSummary((prev) => ({
           ...prev,
-          executed: prev.executed + 1,
-          totalRecoveredAmount: prev.totalRecoveredAmount + (data.recoveredAmount || 0),
+          executed: data.alreadyExecuted ? prev.executed : prev.executed + 1,
+          totalRecoveredAmount: data.alreadyExecuted
+            ? prev.totalRecoveredAmount
+            : prev.totalRecoveredAmount + (data.recoveredAmount || 0),
         }));
 
         setFeedbackMessage({
-          text: `Recovery execution succeeded! Recovered ${formatINR(
-            data.recoveredAmount || 0
-          )} (Simulated Sandbox).`,
+          text: data.alreadyExecuted
+            ? `Recovery already completed: ${formatINR(data.recoveredAmount || 0)} (Idempotent).`
+            : `Recovery successful! Recovered ${formatINR(
+                data.recoveredAmount || 0
+              )} via ${data.providerReference || "MockRecoveryProvider"} (Simulated Sandbox).`,
           type: "success",
         });
       } else {
@@ -369,9 +377,11 @@ export function RecoveryClient({
         );
 
         if (selectedAction && selectedAction.id === actionId) {
-          setSelectedAction((prev) =>
-            prev ? { ...prev, status: RecoveryStatus.FAILED } : null
-          );
+          const detailRes = await fetch(`/api/recovery/${actionId}`);
+          if (detailRes.ok) {
+            const updatedFullAction = await detailRes.json();
+            setSelectedAction(updatedFullAction);
+          }
         }
 
         setFeedbackMessage({
@@ -380,6 +390,7 @@ export function RecoveryClient({
         });
       }
 
+      fetchActions(activeTab);
       router.refresh();
     } catch (err) {
       setFeedbackMessage({
@@ -470,7 +481,7 @@ export function RecoveryClient({
         <div className="flex items-center gap-2 text-ink-muted">
           <Info className="h-4 w-4 text-ai shrink-0" />
           <span>
-            <strong className="text-ink">Bounded Recovery Mode:</strong> Automated actions adhere strictly to deterministic merchant policies. Executions simulate payment capture without real money movement.
+            <strong className="text-ink">Simulated Sandbox Recovery:</strong> Automated interventions simulate payment recovery execution without moving real money or charging real cards.
           </span>
         </div>
         {isViewer && (
@@ -736,11 +747,14 @@ export function RecoveryClient({
                   {getStatusBadge(selectedAction.status)}
                 </div>
                 <p className="tabular mt-0.5 text-[12.5px] text-ink-faint">
-                  Payment: {selectedAction.payment.providerPaymentId || selectedAction.payment.id}
+                  Payment ID: {selectedAction.payment.providerPaymentId || selectedAction.payment.id}
                 </p>
               </div>
               <button
-                onClick={() => setSelectedAction(null)}
+                onClick={() => {
+                  setSelectedAction(null);
+                  setShowConfirmModal(false);
+                }}
                 className="rounded-app p-1.5 text-ink-muted hover:bg-surface hover:text-ink"
                 aria-label="Close detail drawer"
               >
@@ -750,7 +764,7 @@ export function RecoveryClient({
 
             {/* Content */}
             <div className="flex-1 space-y-5 p-6">
-              {/* Financial Box */}
+              {/* Financial & Failure Context Box */}
               <div className="grid grid-cols-2 gap-3 rounded-app border border-line bg-surface p-4">
                 <div>
                   <span className="text-[11.5px] text-ink-faint">At Risk Amount</span>
@@ -758,7 +772,7 @@ export function RecoveryClient({
                     {formatINR(selectedAction.payment.amount)}
                   </p>
                   <span className="text-[11px] text-ink-faint">
-                    Expected: {formatINR(selectedAction.expectedRecoveryAmount || selectedAction.payment.amount)}
+                    Expected Recovery: {formatINR(selectedAction.expectedRecoveryAmount || selectedAction.payment.amount)}
                   </span>
                 </div>
                 <div>
@@ -775,14 +789,35 @@ export function RecoveryClient({
                     </p>
                   )}
                 </div>
+                <div className="col-span-2 border-t border-line pt-2.5 mt-1">
+                  <div className="flex items-center justify-between text-[12px]">
+                    <span className="text-ink-faint">Failure Category:</span>
+                    <span className="font-medium text-ink">
+                      {selectedAction.payment.failureCategory?.replace(/_/g, " ") || "Unknown"}
+                    </span>
+                  </div>
+                  {selectedAction.payment.failures && selectedAction.payment.failures.length > 0 && (
+                    <div className="flex items-start justify-between text-[11.5px] mt-1 text-ink-muted">
+                      <span className="text-ink-faint shrink-0">Failure Reason:</span>
+                      <span className="text-right">
+                        {selectedAction.payment.failures[0].providerDescription ||
+                          selectedAction.payment.failures[0].providerCode ||
+                          "Payment declined by issuer"}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* 1. AI Recommendation Box */}
               <div className="rounded-app border border-line bg-surface p-4 space-y-3">
                 <div className="flex items-center justify-between border-b border-line pb-2">
-                  <span className="text-[12px] font-semibold uppercase tracking-wider text-ink-faint">
-                    AI Diagnosis &amp; Recommendation
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="h-4 w-4 text-ai" />
+                    <span className="text-[12px] font-semibold uppercase tracking-wider text-ink-faint">
+                      AI Recommendation — Advisory Only
+                    </span>
+                  </div>
                   <Badge tone="ai">Advisory Only</Badge>
                 </div>
 
@@ -821,7 +856,7 @@ export function RecoveryClient({
                   <div className="flex items-center gap-1.5">
                     <ShieldCheck className="h-4 w-4 text-ai" />
                     <span className="text-[12px] font-semibold uppercase tracking-wider text-ink">
-                      Deterministic Recovery Policy Gate
+                      Deterministic Policy Gate — Authoritative
                     </span>
                   </div>
                   {policyDecision ? (
@@ -881,6 +916,40 @@ export function RecoveryClient({
                 </div>
               </div>
 
+              {/* Execution Confirmation Step if Triggered */}
+              {showConfirmModal && (
+                <div className="rounded-app border border-ai/40 bg-ai-soft/30 p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-ai">
+                    <HelpCircle className="h-5 w-5 shrink-0" />
+                    <h4 className="text-[13.5px] font-semibold text-ink">
+                      Execute Simulated Recovery Workflow
+                    </h4>
+                  </div>
+                  <p className="text-[12.5px] text-ink-muted leading-relaxed">
+                    You are executing an approved recovery workflow for{" "}
+                    <strong>{formatINR(selectedAction.payment.amount)}</strong>. This will dispatch the intervention through the safe mock recovery provider in sandbox simulation mode. No real cards will be charged.
+                  </p>
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={processingId === selectedAction.id}
+                      onClick={() => setShowConfirmModal(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={processingId === selectedAction.id}
+                      onClick={() => handleExecute(selectedAction.id)}
+                    >
+                      <Play className="h-3.5 w-3.5" /> Confirm &amp; Execute
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Approval History / Sign-Off */}
               {selectedAction.approvedBy ? (
                 <div className="flex items-center gap-2 rounded-app border border-recovery/30 bg-recovery-soft/40 p-3 text-[12.5px] text-ink">
@@ -930,7 +999,7 @@ export function RecoveryClient({
                           <span>{formatDateTime(att.attemptedAt)}</span>
                           {att.recoveredAmount ? (
                             <span className="font-semibold text-recovery">
-                              Recovered {formatINR(att.recoveredAmount)}
+                              Recovered {formatINR(att.recoveredAmount)} (Simulated)
                             </span>
                           ) : null}
                         </div>
@@ -975,7 +1044,10 @@ export function RecoveryClient({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setSelectedAction(null)}
+                  onClick={() => {
+                    setSelectedAction(null);
+                    setShowConfirmModal(false);
+                  }}
                 >
                   Close
                 </Button>
@@ -1012,9 +1084,9 @@ export function RecoveryClient({
                         size="sm"
                         variant="primary"
                         disabled={processingId === selectedAction.id || isLoadingDetail}
-                        onClick={() => handleExecute(selectedAction.id)}
+                        onClick={() => setShowConfirmModal(true)}
                       >
-                        <Play className="h-3.5 w-3.5" /> Execute Workflow Now
+                        <Play className="h-3.5 w-3.5" /> Execute Recovery
                       </Button>
                     ) : selectedAction.status === RecoveryStatus.EXECUTED ? (
                       <Badge tone="recovery" dot>
