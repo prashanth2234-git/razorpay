@@ -23,7 +23,7 @@ import { Input, Select } from "@/components/ui/input";
 import { Panel } from "@/components/ui/panel";
 import { AiDiagnosisCard } from "@/components/recovery/ai-diagnosis-card";
 import { formatINR, formatDateTime, truncateId } from "@/lib/utils";
-import { PaymentStatus, PaymentMethod, FailureCategory } from "@prisma/client";
+import { PaymentStatus, PaymentMethod, FailureCategory } from "@/types/client";
 
 export interface PaymentRecord {
   id: string;

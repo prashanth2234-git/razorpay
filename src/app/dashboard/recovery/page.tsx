@@ -9,8 +9,15 @@ import { Database } from "lucide-react";
 export default async function RecoveryPage() {
   const user = await getCurrentUser();
   const merchantId = user?.merchantId || "merch_kaveri_demo_01";
+  const userRole = user?.role || "OPERATOR";
 
-  let actionsData: Awaited<ReturnType<typeof getRecoveryActions>> = { recoveryActions: [], total: 0, page: 1, pageSize: 50, totalPages: 0 };
+  let actionsData: Awaited<ReturnType<typeof getRecoveryActions>> = {
+    recoveryActions: [],
+    total: 0,
+    page: 1,
+    pageSize: 50,
+    totalPages: 0,
+  };
   let summary = {
     totalActions: 0,
     executed: 0,
@@ -62,8 +69,13 @@ export default async function RecoveryPage() {
           }
         >
           <RecoveryClient
-            initialActions={actionsData.recoveryActions as unknown as Parameters<typeof RecoveryClient>[0]["initialActions"]}
+            initialActions={
+              JSON.parse(JSON.stringify(actionsData.recoveryActions)) as Parameters<
+                typeof RecoveryClient
+              >[0]["initialActions"]
+            }
             summary={summary}
+            userRole={userRole}
           />
         </React.Suspense>
       )}

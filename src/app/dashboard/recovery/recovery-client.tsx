@@ -9,6 +9,12 @@ import {
   Check,
   X,
   ShieldCheck,
+  RefreshCw,
+  Clock,
+  UserCheck,
+  History,
+  Info,
+  Lock,
 } from "lucide-react";
 import { Panel, PanelBody, PanelHeader, PanelTitle } from "@/components/ui/panel";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
@@ -17,10 +23,15 @@ import { Button } from "@/components/ui/button";
 import { Stat, StatRow } from "@/components/ui/stat";
 import { formatINR, formatDateTime, truncateId } from "@/lib/utils";
 import { AiDiagnosisCard } from "@/components/recovery/ai-diagnosis-card";
-import { RecoveryStatus, RecoveryActionType } from "@prisma/client";
-import { AiPolicyDecision } from "@/server/recovery/ai-policy";
+import {
+  RecoveryStatus,
+  RecoveryActionType,
+  UserRole,
+  ClientAiPolicyDecision,
+  canPerformOperationalActions,
+} from "@/types/client";
 
-interface RecoveryActionItem {
+export interface RecoveryActionItem {
   id: string;
   actionType: RecoveryActionType;
   status: RecoveryStatus;
@@ -28,18 +39,31 @@ interface RecoveryActionItem {
   createdAt: string | Date;
   approvedAt: string | Date | null;
   executedAt: string | Date | null;
+  config?: Record<string, unknown> | null;
   payment: {
     id: string;
     providerPaymentId: string | null;
     amount: number;
     currency: string;
     failureCategory: string | null;
+    description?: string | null;
+    createdAt?: string | Date;
     customer: {
       id: string;
       name: string;
       email: string;
       phone: string | null;
+      lifetimeValue?: number;
+      transactionCount?: number;
     };
+    failures?: Array<{
+      id: string;
+      category: string;
+      providerCode: string | null;
+      providerDescription: string | null;
+      isTransient: boolean;
+      occurredAt: string | Date;
+    }>;
   };
   aiAnalysis?: {
     id: string;
@@ -49,6 +73,8 @@ interface RecoveryActionItem {
     recommendedAction: string;
     riskLevel: string;
     reasoning: string;
+    modelProvider?: string;
+    modelName?: string;
   } | null;
   approvedBy?: {
     id: string;
@@ -63,75 +89,135 @@ interface RecoveryActionItem {
     recoveredAmount: number | null;
     attemptedAt: string | Date;
   }>;
+  auditLogs?: Array<{
+    id: string;
+    eventType: string;
+    actorType: string;
+    description: string;
+    createdAt: string | Date;
+    metadata?: Record<string, unknown> | null;
+  }>;
 }
 
-interface RecoveryClientProps {
+export interface RecoverySummaryData {
+  totalActions: number;
+  executed: number;
+  pendingApproval: number;
+  failed: number;
+  totalRecoveredAmount: number;
+}
+
+export type StatusFilterTab =
+  | "ALL"
+  | "RECOMMENDED"
+  | "PENDING_APPROVAL"
+  | "APPROVED"
+  | "EXECUTED"
+  | "FAILED"
+  | "REJECTED"
+  | "ESCALATED";
+
+export interface RecoveryClientProps {
   initialActions: RecoveryActionItem[];
-  summary: {
-    totalActions: number;
-    executed: number;
-    pendingApproval: number;
-    failed: number;
-    totalRecoveredAmount: number;
-  };
+  summary: RecoverySummaryData;
+  userRole?: UserRole | string;
 }
 
-export function RecoveryClient({ initialActions, summary }: RecoveryClientProps) {
+export function RecoveryClient({
+  initialActions,
+  summary: initialSummary,
+  userRole = UserRole.OPERATOR,
+}: RecoveryClientProps) {
   const router = useRouter();
   const [actions, setActions] = React.useState<RecoveryActionItem[]>(initialActions);
-  const [activeTab, setActiveTab] = React.useState<"ALL" | "PENDING" | "APPROVED" | "EXECUTED" | "FAILED" | "ESCALATED">("ALL");
+  const [summary, setSummary] = React.useState<RecoverySummaryData>(initialSummary);
+  const [activeTab, setActiveTab] = React.useState<StatusFilterTab>("ALL");
+  const [isLoading, setIsLoading] = React.useState(false);
   const [processingId, setProcessingId] = React.useState<string | null>(null);
-  const [feedbackMessage, setFeedbackMessage] = React.useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = React.useState<{
+    text: string;
+    type: "success" | "error" | "info";
+  } | null>(null);
   const [selectedAction, setSelectedAction] = React.useState<RecoveryActionItem | null>(null);
+  const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
 
-  // Policy evaluation state for the drawer
-  const [policyDecision, setPolicyDecision] = React.useState<AiPolicyDecision | null>(null);
+  // Policy evaluation decision for drawer
+  const [policyDecision, setPolicyDecision] = React.useState<ClientAiPolicyDecision | null>(null);
 
-  // Filter actions based on active tab
-  const filteredActions = React.useMemo(() => {
-    if (activeTab === "PENDING") {
-      return actions.filter(
-        (a) =>
-          a.status === RecoveryStatus.PENDING_APPROVAL ||
-          a.status === RecoveryStatus.RECOMMENDED
-      );
-    }
-    if (activeTab === "APPROVED") {
-      return actions.filter((a) => a.status === RecoveryStatus.APPROVED);
-    }
-    if (activeTab === "EXECUTED") {
-      return actions.filter((a) => a.status === RecoveryStatus.EXECUTED);
-    }
-    if (activeTab === "FAILED") {
-      return actions.filter((a) => a.status === RecoveryStatus.FAILED);
-    }
-    if (activeTab === "ESCALATED") {
-      return actions.filter((a) => a.status === RecoveryStatus.ESCALATED);
-    }
-    return actions;
-  }, [actions, activeTab]);
+  const isViewer = !canPerformOperationalActions(userRole as UserRole);
 
+  // Fetch actions from API when status filter changes
+  async function fetchActions(tab: StatusFilterTab) {
+    setIsLoading(true);
+    setFeedbackMessage(null);
+
+    try {
+      const url =
+        tab === "ALL"
+          ? `/api/recovery?pageSize=50&includeSummary=true`
+          : `/api/recovery?status=${tab}&pageSize=50&includeSummary=true`;
+
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`Failed to load recovery actions (${res.status})`);
+      }
+
+      const data = await res.json();
+      setActions(data.recoveryActions || []);
+      if (data.summary) {
+        setSummary(data.summary);
+      }
+    } catch (err) {
+      console.error("Error fetching filtered recovery actions:", err);
+      setFeedbackMessage({
+        text: err instanceof Error ? err.message : "Error fetching recovery actions",
+        type: "error",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function handleTabChange(tab: StatusFilterTab) {
+    setActiveTab(tab);
+    fetchActions(tab);
+  }
+
+  // Load detailed action with audits & policy evaluation
   async function handleSelectRow(action: RecoveryActionItem) {
     setSelectedAction(action);
     setPolicyDecision(null);
+    setIsLoadingDetail(true);
 
     try {
-      const res = await fetch(`/api/recovery/${action.id}/evaluate`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.decision) {
-          setPolicyDecision(data.decision);
+      // Parallel fetch full action details and real-time policy evaluation
+      const [actionRes, evalRes] = await Promise.all([
+        fetch(`/api/recovery/${action.id}`),
+        fetch(`/api/recovery/${action.id}/evaluate`, { method: "POST" }),
+      ]);
+
+      if (actionRes.ok) {
+        const fullAction = await actionRes.json();
+        setSelectedAction(fullAction);
+      }
+
+      if (evalRes.ok) {
+        const evalData = await evalRes.json();
+        if (evalData.decision) {
+          setPolicyDecision(evalData.decision);
         }
       }
     } catch (err) {
-      console.error("Failed to evaluate policy for action:", err);
+      console.error("Failed to load full action details:", err);
+    } finally {
+      setIsLoadingDetail(false);
     }
   }
 
   async function handleApprove(actionId: string, e?: React.MouseEvent) {
     e?.stopPropagation();
+    if (isViewer) return;
+
     setProcessingId(actionId);
     setFeedbackMessage(null);
 
@@ -145,20 +231,25 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
         throw new Error(data.error || "Approval failed");
       }
 
+      const updatedApprovedAt = new Date();
       setActions((prev) =>
         prev.map((a) =>
           a.id === actionId
-            ? { ...a, status: RecoveryStatus.APPROVED, approvedAt: new Date() }
+            ? { ...a, status: RecoveryStatus.APPROVED, approvedAt: updatedApprovedAt }
             : a
         )
       );
+
       if (selectedAction && selectedAction.id === actionId) {
         setSelectedAction((prev) =>
-          prev ? { ...prev, status: RecoveryStatus.APPROVED, approvedAt: new Date() } : null
+          prev
+            ? { ...prev, status: RecoveryStatus.APPROVED, approvedAt: updatedApprovedAt }
+            : null
         );
       }
+
       setFeedbackMessage({
-        text: `Action approved successfully by operator. Ready for execution.`,
+        text: "Action approved by operator. Ready for execution.",
         type: "success",
       });
       router.refresh();
@@ -174,6 +265,8 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
 
   async function handleReject(actionId: string, e?: React.MouseEvent) {
     e?.stopPropagation();
+    if (isViewer) return;
+
     setProcessingId(actionId);
     setFeedbackMessage(null);
 
@@ -181,7 +274,7 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
       const res = await fetch(`/api/recovery/${actionId}/reject`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "Declined by operator" }),
+        body: JSON.stringify({ reason: "Declined by merchant operator" }),
       });
       const data = await res.json();
 
@@ -190,18 +283,18 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
       }
 
       setActions((prev) =>
-        prev.map((a) =>
-          a.id === actionId ? { ...a, status: RecoveryStatus.REJECTED } : a
-        )
+        prev.map((a) => (a.id === actionId ? { ...a, status: RecoveryStatus.REJECTED } : a))
       );
+
       if (selectedAction && selectedAction.id === actionId) {
         setSelectedAction((prev) =>
           prev ? { ...prev, status: RecoveryStatus.REJECTED } : null
         );
       }
+
       setFeedbackMessage({
-        text: `Action was marked as rejected and logged to audit trail.`,
-        type: "success",
+        text: "Action was rejected and recorded in immutable audit log.",
+        type: "info",
       });
       router.refresh();
     } catch (err) {
@@ -216,6 +309,8 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
 
   async function handleExecute(actionId: string, e?: React.MouseEvent) {
     e?.stopPropagation();
+    if (isViewer) return;
+
     setProcessingId(actionId);
     setFeedbackMessage(null);
 
@@ -229,39 +324,62 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
         throw new Error(data.error || "Execution failed");
       }
 
+      const now = new Date();
       if (data.success) {
         setActions((prev) =>
           prev.map((a) =>
             a.id === actionId
-              ? { ...a, status: RecoveryStatus.EXECUTED, executedAt: new Date() }
+              ? {
+                  ...a,
+                  status: RecoveryStatus.EXECUTED,
+                  executedAt: now,
+                  expectedRecoveryAmount: data.recoveredAmount || a.expectedRecoveryAmount,
+                }
               : a
           )
         );
+
         if (selectedAction && selectedAction.id === actionId) {
           setSelectedAction((prev) =>
-            prev ? { ...prev, status: RecoveryStatus.EXECUTED, executedAt: new Date() } : null
+            prev
+              ? {
+                  ...prev,
+                  status: RecoveryStatus.EXECUTED,
+                  executedAt: now,
+                }
+              : null
           );
         }
+
+        setSummary((prev) => ({
+          ...prev,
+          executed: prev.executed + 1,
+          totalRecoveredAmount: prev.totalRecoveredAmount + (data.recoveredAmount || 0),
+        }));
+
         setFeedbackMessage({
-          text: `Recovery execution succeeded! Recovered ${formatINR(data.result.recoveredAmount)}.`,
+          text: `Recovery execution succeeded! Recovered ${formatINR(
+            data.recoveredAmount || 0
+          )} (Simulated Sandbox).`,
           type: "success",
         });
       } else {
         setActions((prev) =>
-          prev.map((a) =>
-            a.id === actionId ? { ...a, status: RecoveryStatus.FAILED } : a
-          )
+          prev.map((a) => (a.id === actionId ? { ...a, status: RecoveryStatus.FAILED } : a))
         );
+
         if (selectedAction && selectedAction.id === actionId) {
           setSelectedAction((prev) =>
             prev ? { ...prev, status: RecoveryStatus.FAILED } : null
           );
         }
+
         setFeedbackMessage({
-          text: `Recovery attempt was declined: ${data.result.message}`,
+          text: `Recovery attempt was declined: ${data.message || data.error}`,
           type: "error",
         });
       }
+
       router.refresh();
     } catch (err) {
       setFeedbackMessage({
@@ -280,7 +398,7 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
       case RecoveryStatus.APPROVED:
         return <Badge tone="ai" dot>Approved</Badge>;
       case RecoveryStatus.PENDING_APPROVAL:
-        return <Badge tone="risk">Pending Approval</Badge>;
+        return <Badge tone="risk" dot>Pending Approval</Badge>;
       case RecoveryStatus.RECOMMENDED:
         return <Badge tone="info">Recommended</Badge>;
       case RecoveryStatus.FAILED:
@@ -293,6 +411,17 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
         return <Badge tone="neutral">{status}</Badge>;
     }
   };
+
+  const tabs: { key: StatusFilterTab; label: string }[] = [
+    { key: "ALL", label: "All" },
+    { key: "RECOMMENDED", label: "Recommended" },
+    { key: "PENDING_APPROVAL", label: "Pending Approval" },
+    { key: "APPROVED", label: "Approved" },
+    { key: "EXECUTED", label: "Executed" },
+    { key: "FAILED", label: "Failed" },
+    { key: "REJECTED", label: "Rejected" },
+    { key: "ESCALATED", label: "Escalated" },
+  ];
 
   return (
     <div className="space-y-6">
@@ -336,18 +465,38 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
         />
       </StatRow>
 
+      {/* Safety Notice & Viewer Role Warning Banner */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-app border border-line bg-surface-raised px-4 py-2.5 text-[12.5px]">
+        <div className="flex items-center gap-2 text-ink-muted">
+          <Info className="h-4 w-4 text-ai shrink-0" />
+          <span>
+            <strong className="text-ink">Bounded Recovery Mode:</strong> Automated actions adhere strictly to deterministic merchant policies. Executions simulate payment capture without real money movement.
+          </span>
+        </div>
+        {isViewer && (
+          <div className="flex items-center gap-1.5 rounded bg-risk-soft px-2 py-0.5 text-[11.5px] font-medium text-risk">
+            <Lock className="h-3 w-3" />
+            <span>Viewer Mode (Read-Only)</span>
+          </div>
+        )}
+      </div>
+
       {/* Feedback Alert */}
       {feedbackMessage && (
         <div
           className={`flex items-center justify-between rounded-app border p-3.5 text-[13px] ${
             feedbackMessage.type === "success"
               ? "border-recovery/30 bg-recovery-soft text-recovery"
+              : feedbackMessage.type === "info"
+              ? "border-ai/30 bg-ai-soft text-ai"
               : "border-danger/30 bg-danger-soft text-danger"
           }`}
         >
           <div className="flex items-center gap-2">
             {feedbackMessage.type === "success" ? (
               <CheckCircle2 className="h-4 w-4 shrink-0" />
+            ) : feedbackMessage.type === "info" ? (
+              <Info className="h-4 w-4 shrink-0" />
             ) : (
               <AlertTriangle className="h-4 w-4 shrink-0" />
             )}
@@ -356,6 +505,7 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
           <button
             onClick={() => setFeedbackMessage(null)}
             className="text-ink-muted hover:text-ink"
+            aria-label="Dismiss feedback"
           >
             <X className="h-4 w-4" />
           </button>
@@ -371,49 +521,76 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
               Human-in-the-Loop Active
             </Badge>
           </div>
-          <div className="flex items-center gap-1">
-            {(["ALL", "PENDING", "APPROVED", "EXECUTED", "FAILED", "ESCALATED"] as const).map(
-              (tab) => (
+
+          <div className="flex items-center gap-2">
+            {/* Status Filter Tab Bar */}
+            <div className="flex flex-wrap items-center gap-1">
+              {tabs.map((tab) => (
                 <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
+                  key={tab.key}
+                  onClick={() => handleTabChange(tab.key)}
                   className={`rounded-app px-2.5 py-1 text-[12px] font-medium transition-colors ${
-                    activeTab === tab
+                    activeTab === tab.key
                       ? "bg-ink text-paper"
                       : "text-ink-muted hover:bg-surface hover:text-ink"
                   }`}
                 >
-                  {tab === "ALL" ? "All" : tab.replace(/_/g, " ")}
+                  {tab.label}
                 </button>
-              )
-            )}
+              ))}
+            </div>
+
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => fetchActions(activeTab)}
+              disabled={isLoading}
+              className="h-7 px-2 text-[11.5px]"
+              aria-label="Refresh recovery queue"
+            >
+              <RefreshCw className={`h-3 w-3 ${isLoading ? "animate-spin text-ai" : ""}`} />
+            </Button>
           </div>
         </PanelHeader>
 
-        {filteredActions.length === 0 ? (
+        {isLoading ? (
+          <PanelBody className="py-16 text-center text-ink-faint">
+            <RefreshCw className="mx-auto h-6 w-6 animate-spin text-ai" />
+            <p className="mt-3 text-[13.5px] text-ink-muted">Loading recovery actions…</p>
+          </PanelBody>
+        ) : actions.length === 0 ? (
           <PanelBody className="py-16 text-center text-ink-muted">
             <CheckCircle2 className="mx-auto h-8 w-8 text-recovery" />
-            <p className="mt-2 text-[14px] font-semibold text-ink">Queue clear in this category</p>
-            <p className="text-[12.5px] text-ink-muted">All active recovery opportunities have been addressed.</p>
+            <p className="mt-2 text-[14px] font-semibold text-ink">
+              Queue clear for filter: {tabs.find((t) => t.key === activeTab)?.label}
+            </p>
+            <p className="text-[12.5px] text-ink-muted">
+              No recovery actions currently match this status filter.
+            </p>
           </PanelBody>
         ) : (
           <Table>
             <THead>
               <TR>
-                <TH>Opportunity</TH>
+                <TH>Opportunity / ID</TH>
                 <TH>Customer</TH>
-                <TH>Order Value</TH>
+                <TH>Amount</TH>
                 <TH>Recovery Odds</TH>
                 <TH>Risk Level</TH>
                 <TH>Intervention</TH>
                 <TH>Status</TH>
+                <TH>Created</TH>
                 <TH className="text-right">Actions</TH>
               </TR>
             </THead>
             <TBody>
-              {filteredActions.map((action) => {
+              {actions.map((action) => {
                 const ai = action.aiAnalysis;
                 const isProcessing = processingId === action.id;
+                const paymentIdDisplay = truncateId(
+                  action.payment.providerPaymentId || action.payment.id,
+                  16
+                );
 
                 return (
                   <TR
@@ -423,13 +600,15 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
                     className="hover:bg-surface/80"
                   >
                     <TD className="tabular font-medium text-ink">
-                      {truncateId(action.payment.providerPaymentId || action.payment.id, 16)}
+                      {paymentIdDisplay}
                     </TD>
                     <TD>
                       <div className="flex flex-col">
-                        <span className="font-medium text-ink">{action.payment.customer.name}</span>
+                        <span className="font-medium text-ink">
+                          {action.payment.customer.name}
+                        </span>
                         <span className="text-[11.5px] text-ink-faint">
-                          {action.payment.failureCategory?.replace(/_/g, " ") || "Failure"}
+                          {action.payment.failureCategory?.replace(/_/g, " ") || "Unclassified"}
                         </span>
                       </div>
                     </TD>
@@ -480,6 +659,9 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
                       </Badge>
                     </TD>
                     <TD>{getStatusBadge(action.status)}</TD>
+                    <TD className="tabular text-[12px] text-ink-faint">
+                      {formatDateTime(action.createdAt)}
+                    </TD>
                     <TD className="text-right">
                       <div
                         className="flex items-center justify-end gap-1.5"
@@ -487,36 +669,44 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
                       >
                         {action.status === RecoveryStatus.PENDING_APPROVAL ||
                         action.status === RecoveryStatus.RECOMMENDED ? (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="recovery"
-                              disabled={isProcessing}
-                              onClick={(e) => handleApprove(action.id, e)}
-                              className="h-7 px-2 text-[12px]"
-                            >
-                              <Check className="h-3.5 w-3.5" /> Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={isProcessing}
-                              onClick={(e) => handleReject(action.id, e)}
-                              className="h-7 px-2 text-[12px] text-danger hover:bg-danger-soft"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          </>
+                          !isViewer ? (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="recovery"
+                                disabled={isProcessing}
+                                onClick={(e) => handleApprove(action.id, e)}
+                                className="h-7 px-2 text-[12px]"
+                              >
+                                <Check className="h-3.5 w-3.5" /> Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={isProcessing}
+                                onClick={(e) => handleReject(action.id, e)}
+                                className="h-7 px-2 text-[12px] text-danger hover:bg-danger-soft"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          ) : (
+                            <span className="text-[11.5px] text-ink-faint">Requires Operator</span>
+                          )
                         ) : action.status === RecoveryStatus.APPROVED ? (
-                          <Button
-                            size="sm"
-                            variant="primary"
-                            disabled={isProcessing}
-                            onClick={(e) => handleExecute(action.id, e)}
-                            className="h-7 px-2.5 text-[12px]"
-                          >
-                            <Play className="h-3.5 w-3.5" /> Execute
-                          </Button>
+                          !isViewer ? (
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              disabled={isProcessing}
+                              onClick={(e) => handleExecute(action.id, e)}
+                              className="h-7 px-2.5 text-[12px]"
+                            >
+                              <Play className="h-3.5 w-3.5" /> Execute
+                            </Button>
+                          ) : (
+                            <span className="text-[11.5px] text-ink-faint">Approved</span>
+                          )
                         ) : action.status === RecoveryStatus.EXECUTED ? (
                           <span className="text-[12px] font-medium text-recovery">
                             {formatINR(action.expectedRecoveryAmount || action.payment.amount)}
@@ -546,12 +736,13 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
                   {getStatusBadge(selectedAction.status)}
                 </div>
                 <p className="tabular mt-0.5 text-[12.5px] text-ink-faint">
-                  Action ID: {selectedAction.id}
+                  Payment: {selectedAction.payment.providerPaymentId || selectedAction.payment.id}
                 </p>
               </div>
               <button
                 onClick={() => setSelectedAction(null)}
                 className="rounded-app p-1.5 text-ink-muted hover:bg-surface hover:text-ink"
+                aria-label="Close detail drawer"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -566,13 +757,23 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
                   <p className="tabular text-[20px] font-semibold text-ink">
                     {formatINR(selectedAction.payment.amount)}
                   </p>
+                  <span className="text-[11px] text-ink-faint">
+                    Expected: {formatINR(selectedAction.expectedRecoveryAmount || selectedAction.payment.amount)}
+                  </span>
                 </div>
                 <div>
                   <span className="text-[11.5px] text-ink-faint">Customer</span>
                   <p className="text-[14px] font-medium text-ink">
                     {selectedAction.payment.customer.name}
                   </p>
-                  <p className="text-[11.5px] text-ink-faint">{selectedAction.payment.customer.email}</p>
+                  <p className="text-[11.5px] text-ink-faint">
+                    {selectedAction.payment.customer.email}
+                  </p>
+                  {selectedAction.payment.customer.phone && (
+                    <p className="text-[11px] text-ink-faint">
+                      {selectedAction.payment.customer.phone}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -582,7 +783,7 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
                   <span className="text-[12px] font-semibold uppercase tracking-wider text-ink-faint">
                     AI Diagnosis &amp; Recommendation
                   </span>
-                  <Badge tone="ai">Advisory</Badge>
+                  <Badge tone="ai">Advisory Only</Badge>
                 </div>
 
                 {selectedAction.aiAnalysis ? (
@@ -592,9 +793,15 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
                     recoveryProbability={selectedAction.aiAnalysis.recoveryProbability}
                     riskLevel={selectedAction.aiAnalysis.riskLevel}
                     recommendedAction={selectedAction.aiAnalysis.recommendedAction}
-                    expectedRecoveryAmount={selectedAction.payment.amount}
+                    expectedRecoveryAmount={selectedAction.expectedRecoveryAmount || selectedAction.payment.amount}
                     reasoning={selectedAction.aiAnalysis.reasoning}
                     failureCategory={selectedAction.payment.failureCategory}
+                    modelName={selectedAction.aiAnalysis.modelName || "Claude / Gemini"}
+                    source={
+                      selectedAction.aiAnalysis.modelProvider === "deterministic_fallback"
+                        ? "deterministic_fallback"
+                        : "claude"
+                    }
                   />
                 ) : (
                   <div className="flex items-center justify-between">
@@ -631,19 +838,19 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
                       {policyDecision.status === "AI_RECOMMENDATION_ACCEPTED"
                         ? "Policy: Accepted"
                         : policyDecision.status === "AI_RECOMMENDATION_REQUIRES_APPROVAL"
-                        ? "Policy: Operator Approval Required"
+                        ? "Policy: Approval Required"
                         : policyDecision.status === "AI_RECOMMENDATION_ESCALATED"
-                        ? "Policy: Overridden / Escalated"
+                        ? "Policy: Escalated"
                         : "Policy: Rejected"}
                     </Badge>
                   ) : (
-                    <Badge tone="neutral">Checking Policy Rules…</Badge>
+                    <Badge tone="neutral">Evaluating Policy Rules…</Badge>
                   )}
                 </div>
 
                 <div className="space-y-2 text-[12.5px]">
                   <div className="flex items-center justify-between">
-                    <span className="text-ink-faint">Permitted Policy Action:</span>
+                    <span className="text-ink-faint">Policy Permitted Action:</span>
                     <span className="font-semibold text-ink">
                       {policyDecision
                         ? policyDecision.policyPermittedAction.replace(/_/g, " ")
@@ -652,10 +859,10 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
                   </div>
 
                   <div className="flex items-start justify-between gap-4">
-                    <span className="text-ink-faint shrink-0">Policy Guidance:</span>
+                    <span className="text-ink-faint shrink-0">Policy Rule Guidance:</span>
                     <span className="text-right font-medium text-ink-muted">
                       {policyDecision?.policyReason ||
-                        "Deterministic safety policy rules govern execution."}
+                        "Deterministic safety policies govern whether this action can proceed."}
                     </span>
                   </div>
 
@@ -674,20 +881,33 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
                 </div>
               </div>
 
-              {/* Approval History */}
-              {selectedAction.approvedBy && (
-                <div className="rounded-app border border-line p-3 text-[12.5px] text-ink">
-                  <span className="font-semibold">Operator Sign-Off:</span> Approved by{" "}
-                  <span className="font-medium text-ink">{selectedAction.approvedBy.name}</span> on{" "}
-                  {selectedAction.approvedAt ? formatDateTime(selectedAction.approvedAt) : "—"}
+              {/* Approval History / Sign-Off */}
+              {selectedAction.approvedBy ? (
+                <div className="flex items-center gap-2 rounded-app border border-recovery/30 bg-recovery-soft/40 p-3 text-[12.5px] text-ink">
+                  <UserCheck className="h-4 w-4 text-recovery shrink-0" />
+                  <div>
+                    <span className="font-semibold">Approved by:</span>{" "}
+                    {selectedAction.approvedBy.name} ({selectedAction.approvedBy.email}) on{" "}
+                    {selectedAction.approvedAt
+                      ? formatDateTime(selectedAction.approvedAt)
+                      : "—"}
+                  </div>
                 </div>
-              )}
+              ) : selectedAction.status === RecoveryStatus.PENDING_APPROVAL ? (
+                <div className="flex items-center gap-2 rounded-app border border-risk/30 bg-risk-soft/40 p-3 text-[12.5px] text-ink">
+                  <Clock className="h-4 w-4 text-risk shrink-0" />
+                  <div>
+                    <span className="font-semibold text-risk">Human Approval Required:</span>{" "}
+                    An operator with Operator or Admin privileges must review and approve this intervention before execution.
+                  </div>
+                </div>
+              ) : null}
 
-              {/* Attempts Timeline */}
+              {/* Previous Recovery Attempts Timeline */}
               {selectedAction.attempts && selectedAction.attempts.length > 0 && (
                 <div>
                   <h4 className="mb-2 text-[12.5px] font-semibold uppercase tracking-wider text-ink-faint">
-                    Recovery Attempt Records
+                    Recovery Attempt Records ({selectedAction.attempts.length})
                   </h4>
                   <div className="space-y-2">
                     {selectedAction.attempts.map((att) => (
@@ -706,9 +926,42 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
                           </Badge>
                         </div>
                         <p className="mt-1 text-ink-muted">{att.result}</p>
-                        <span className="text-[11px] text-ink-faint">
-                          {formatDateTime(att.attemptedAt)}
-                        </span>
+                        <div className="mt-1 flex items-center justify-between text-[11px] text-ink-faint">
+                          <span>{formatDateTime(att.attemptedAt)}</span>
+                          {att.recoveredAmount ? (
+                            <span className="font-semibold text-recovery">
+                              Recovered {formatINR(att.recoveredAmount)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Immutable Audit History */}
+              {selectedAction.auditLogs && selectedAction.auditLogs.length > 0 && (
+                <div>
+                  <div className="mb-2 flex items-center gap-1.5">
+                    <History className="h-4 w-4 text-ink-faint" />
+                    <h4 className="text-[12.5px] font-semibold uppercase tracking-wider text-ink-faint">
+                      Audit Trail
+                    </h4>
+                  </div>
+                  <div className="space-y-2">
+                    {selectedAction.auditLogs.map((log) => (
+                      <div
+                        key={log.id}
+                        className="rounded-app border border-line bg-surface p-2.5 text-[12px]"
+                      >
+                        <div className="flex items-center justify-between">
+                          <Badge tone="neutral">{log.eventType}</Badge>
+                          <span className="text-[11px] text-ink-faint">
+                            {formatDateTime(log.createdAt)}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-ink-muted">{log.description}</p>
                       </div>
                     ))}
                   </div>
@@ -716,7 +969,7 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
               )}
             </div>
 
-            {/* Footer Interactive Actions */}
+            {/* Drawer Footer Interactive Controls */}
             <div className="border-t border-line bg-surface px-6 py-4">
               <div className="flex items-center justify-between gap-3">
                 <Button
@@ -726,38 +979,52 @@ export function RecoveryClient({ initialActions, summary }: RecoveryClientProps)
                 >
                   Close
                 </Button>
-                <div className="flex items-center gap-2">
-                  {selectedAction.status === RecoveryStatus.PENDING_APPROVAL ||
-                  selectedAction.status === RecoveryStatus.RECOMMENDED ? (
-                    <>
+
+                {isViewer ? (
+                  <div className="flex items-center gap-1 text-[12px] text-ink-faint">
+                    <Lock className="h-3.5 w-3.5" />
+                    <span>Viewer Mode (Read-Only)</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    {selectedAction.status === RecoveryStatus.PENDING_APPROVAL ||
+                    selectedAction.status === RecoveryStatus.RECOMMENDED ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          disabled={processingId === selectedAction.id || isLoadingDetail}
+                          onClick={() => handleReject(selectedAction.id)}
+                        >
+                          Reject Action
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="recovery"
+                          disabled={processingId === selectedAction.id || isLoadingDetail}
+                          onClick={() => handleApprove(selectedAction.id)}
+                        >
+                          Approve Recovery
+                        </Button>
+                      </>
+                    ) : selectedAction.status === RecoveryStatus.APPROVED ? (
                       <Button
                         size="sm"
-                        variant="danger"
-                        disabled={processingId === selectedAction.id}
-                        onClick={() => handleReject(selectedAction.id)}
+                        variant="primary"
+                        disabled={processingId === selectedAction.id || isLoadingDetail}
+                        onClick={() => handleExecute(selectedAction.id)}
                       >
-                        Reject Action
+                        <Play className="h-3.5 w-3.5" /> Execute Workflow Now
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="recovery"
-                        disabled={processingId === selectedAction.id}
-                        onClick={() => handleApprove(selectedAction.id)}
-                      >
-                        Approve Recovery
-                      </Button>
-                    </>
-                  ) : selectedAction.status === RecoveryStatus.APPROVED ? (
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      disabled={processingId === selectedAction.id}
-                      onClick={() => handleExecute(selectedAction.id)}
-                    >
-                      <Play className="h-3.5 w-3.5" /> Execute Workflow Now
-                    </Button>
-                  ) : null}
-                </div>
+                    ) : selectedAction.status === RecoveryStatus.EXECUTED ? (
+                      <Badge tone="recovery" dot>
+                        Recovered ({formatINR(selectedAction.expectedRecoveryAmount || selectedAction.payment.amount)})
+                      </Badge>
+                    ) : (
+                      <Badge tone="neutral">{selectedAction.status}</Badge>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>

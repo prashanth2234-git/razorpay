@@ -1,0 +1,109 @@
+/**
+ * Browser-safe type definitions, enums, and utility contracts.
+ *
+ * CRITICAL ARCHITECTURE RULE:
+ * This file contains ONLY pure TypeScript definitions and browser-safe utilities.
+ * NEVER import @prisma/client, pg, node:*, or any server-only modules here.
+ */
+
+export const UserRole = {
+  ADMIN: "ADMIN",
+  OPERATOR: "OPERATOR",
+  VIEWER: "VIEWER",
+} as const;
+export type UserRole = (typeof UserRole)[keyof typeof UserRole];
+
+export const PaymentStatus = {
+  PENDING: "PENDING",
+  PROCESSING: "PROCESSING",
+  SUCCESS: "SUCCESS",
+  FAILED: "FAILED",
+  RECOVERY_PENDING: "RECOVERY_PENDING",
+  RECOVERED: "RECOVERED",
+  ESCALATED: "ESCALATED",
+} as const;
+export type PaymentStatus = (typeof PaymentStatus)[keyof typeof PaymentStatus];
+
+export const PaymentMethod = {
+  UPI: "UPI",
+  CARD: "CARD",
+  NETBANKING: "NETBANKING",
+  WALLET: "WALLET",
+  EMI: "EMI",
+} as const;
+export type PaymentMethod = (typeof PaymentMethod)[keyof typeof PaymentMethod];
+
+export const FailureCategory = {
+  TEMPORARY_ISSUER_FAILURE: "TEMPORARY_ISSUER_FAILURE",
+  NETWORK_TIMEOUT: "NETWORK_TIMEOUT",
+  INSUFFICIENT_FUNDS: "INSUFFICIENT_FUNDS",
+  INVALID_PAYMENT_METHOD: "INVALID_PAYMENT_METHOD",
+  EXPIRED_CARD: "EXPIRED_CARD",
+  AUTHENTICATION_FAILURE: "AUTHENTICATION_FAILURE",
+  CUSTOMER_CANCELLED: "CUSTOMER_CANCELLED",
+  MANDATE_FAILURE: "MANDATE_FAILURE",
+  UNKNOWN: "UNKNOWN",
+} as const;
+export type FailureCategory = (typeof FailureCategory)[keyof typeof FailureCategory];
+
+export const RecoveryActionType = {
+  RETRY_PAYMENT: "RETRY_PAYMENT",
+  SEND_REMINDER: "SEND_REMINDER",
+  REQUEST_PAYMENT_METHOD_UPDATE: "REQUEST_PAYMENT_METHOD_UPDATE",
+  WAIT: "WAIT",
+  ESCALATE: "ESCALATE",
+} as const;
+export type RecoveryActionType =
+  (typeof RecoveryActionType)[keyof typeof RecoveryActionType];
+
+export const RecoveryStatus = {
+  RECOMMENDED: "RECOMMENDED",
+  PENDING_APPROVAL: "PENDING_APPROVAL",
+  APPROVED: "APPROVED",
+  EXECUTING: "EXECUTING",
+  EXECUTED: "EXECUTED",
+  FAILED: "FAILED",
+  REJECTED: "REJECTED",
+  ESCALATED: "ESCALATED",
+} as const;
+export type RecoveryStatus = (typeof RecoveryStatus)[keyof typeof RecoveryStatus];
+
+export const RiskLevel = {
+  LOW: "LOW",
+  MEDIUM: "MEDIUM",
+  HIGH: "HIGH",
+} as const;
+export type RiskLevel = (typeof RiskLevel)[keyof typeof RiskLevel];
+
+export type AiPolicyStatus =
+  | "AI_RECOMMENDATION_ACCEPTED"
+  | "AI_RECOMMENDATION_REQUIRES_APPROVAL"
+  | "AI_RECOMMENDATION_REJECTED"
+  | "AI_RECOMMENDATION_ESCALATED";
+
+export interface ClientAiPolicyDecision {
+  status: AiPolicyStatus;
+  aiRecommendedAction: RecoveryActionType | string;
+  policyPermittedAction: RecoveryActionType | string;
+  aiConfidence: number;
+  aiRecoveryProbability: number;
+  aiRiskLevel: RiskLevel | string;
+  requiresHumanApproval: boolean;
+  isPolicyOverridden: boolean;
+  policyReason: string;
+  policyFlags: string[];
+}
+
+/**
+ * Check whether a given role is allowed to perform operational actions (browser-safe).
+ */
+export function canPerformOperationalActions(role: UserRole | string): boolean {
+  return role === UserRole.ADMIN || role === UserRole.OPERATOR;
+}
+
+/**
+ * Check whether a given role is allowed to modify merchant settings (browser-safe).
+ */
+export function canManageSettings(role: UserRole | string): boolean {
+  return role === UserRole.ADMIN;
+}
