@@ -75,6 +75,37 @@ export const RiskLevel = {
 } as const;
 export type RiskLevel = (typeof RiskLevel)[keyof typeof RiskLevel];
 
+export const ActorType = {
+  AI_AGENT: "AI_AGENT",
+  USER: "USER",
+  SYSTEM: "SYSTEM",
+  WEBHOOK: "WEBHOOK",
+} as const;
+export type ActorType = (typeof ActorType)[keyof typeof ActorType];
+
+export const AuditEventType = {
+  PAYMENT_FAILED: "PAYMENT_FAILED",
+  AI_DIAGNOSIS_GENERATED: "AI_DIAGNOSIS_GENERATED",
+  RECOVERY_ACTION_CREATED: "RECOVERY_ACTION_CREATED",
+  RECOVERY_ACTION_APPROVED: "RECOVERY_ACTION_APPROVED",
+  RECOVERY_ACTION_REJECTED: "RECOVERY_ACTION_REJECTED",
+  RECOVERY_ATTEMPT_STARTED: "RECOVERY_ATTEMPT_STARTED",
+  RECOVERY_ATTEMPT_SUCCEEDED: "RECOVERY_ATTEMPT_SUCCEEDED",
+  RECOVERY_ATTEMPT_FAILED: "RECOVERY_ATTEMPT_FAILED",
+  MANUAL_OVERRIDE: "MANUAL_OVERRIDE",
+  SETTINGS_UPDATED: "SETTINGS_UPDATED",
+} as const;
+export type AuditEventType = (typeof AuditEventType)[keyof typeof AuditEventType];
+
+export const NotificationType = {
+  PAYMENT_FAILURE: "PAYMENT_FAILURE",
+  RECOVERY_SUCCESS: "RECOVERY_SUCCESS",
+  APPROVAL_REQUIRED: "APPROVAL_REQUIRED",
+  RISK_ALERT: "RISK_ALERT",
+  SYSTEM_UPDATE: "SYSTEM_UPDATE",
+} as const;
+export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
+
 export type AiPolicyStatus =
   | "AI_RECOMMENDATION_ACCEPTED"
   | "AI_RECOMMENDATION_REQUIRES_APPROVAL"
@@ -92,6 +123,77 @@ export interface ClientAiPolicyDecision {
   isPolicyOverridden: boolean;
   policyReason: string;
   policyFlags: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Audit Log Types
+// ---------------------------------------------------------------------------
+
+export interface AuditLogItem {
+  id: string;
+  merchantId: string;
+  userId: string | null;
+  paymentId: string | null;
+  recoveryActionId: string | null;
+  actorType: ActorType;
+  eventType: AuditEventType;
+  description: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string | Date;
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+  } | null;
+  payment?: {
+    id: string;
+    providerPaymentId: string | null;
+    amount: number;
+    currency: string;
+    status: string;
+    failureCategory?: string | null;
+    customer?: {
+      name: string;
+      email: string;
+    } | null;
+  } | null;
+  recoveryAction?: {
+    id: string;
+    actionType: string;
+    status: string;
+    expectedRecoveryAmount?: number | null;
+  } | null;
+}
+
+export interface AuditLogsResponse {
+  auditLogs: AuditLogItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+// ---------------------------------------------------------------------------
+// Notification Types
+// ---------------------------------------------------------------------------
+
+export interface NotificationItem {
+  id: string;
+  merchantId: string;
+  customerId: string | null;
+  type: NotificationType;
+  title: string;
+  message: string;
+  read: boolean;
+  metadata: Record<string, unknown> | null;
+  createdAt: string | Date;
+}
+
+export interface NotificationsResponse {
+  notifications: NotificationItem[];
+  unreadCount: number;
+  total: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -19,7 +19,7 @@ import {
 } from "@prisma/client";
 import * as claudeModule from "@/server/ai/claude";
 import * as geminiModule from "@/server/ai/gemini";
-import * as auditService from "@/server/services/auditService";
+import * as auditService from "@/server/audit/audit-service";
 
 vi.mock("@/lib/db", () => ({
   db: {
@@ -35,7 +35,15 @@ vi.mock("@/lib/db", () => ({
     auditLog: {
       create: vi.fn(),
     },
+    notification: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: "notif_mock" }),
+    },
   },
+}));
+
+vi.mock("@/server/audit/audit-service", () => ({
+  createAuditLog: vi.fn(),
 }));
 
 vi.mock("@/server/services/auditService", () => ({

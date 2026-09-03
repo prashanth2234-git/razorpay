@@ -3,6 +3,7 @@ import {
   ActorType,
   AuditEventType,
   FailureCategory,
+  NotificationType,
   Prisma,
   RecoveryActionType,
   RecoveryStatus,
@@ -21,7 +22,8 @@ import {
   isGeminiConfigured,
 } from "@/server/ai/gemini";
 import { evaluateAiRecoveryRecommendation } from "@/server/recovery/ai-policy";
-import { createAuditLog } from "@/server/services/auditService";
+import { createAuditLog } from "@/server/audit/audit-service";
+import { createNotification } from "@/server/notifications/notification-service";
 
 export interface ProcessFailedPaymentOptions {
   preferredProvider?: "claude" | "gemini" | "auto";
@@ -302,6 +304,49 @@ export async function processFailedPayment(
       policyFlags: policyDecision.policyFlags,
     } as Prisma.InputJsonValue,
   });
+
+  // 10. Record Notifications
+  await createNotification({
+    merchantId: payment.merchantId,
+    customerId: payment.customerId,
+    type: NotificationType.PAYMENT_FAILURE,
+    title: `Payment Failed: ₹${(payment.amount / 100).toLocaleString("en-IN")}`,
+    message: `Payment ${payment.providerPaymentId || payment.id} failed (${payment.failureCategory || "Gateway Error"})`,
+    metadata: {
+      paymentId: payment.id,
+      amount: payment.amount,
+      failureCategory: payment.failureCategory,
+    },
+  });
+
+  if (recoveryStatus === RecoveryStatus.PENDING_APPROVAL) {
+    await createNotification({
+      merchantId: payment.merchantId,
+      customerId: payment.customerId,
+      type: NotificationType.APPROVAL_REQUIRED,
+      title: `Approval Required: ₹${(expectedRecoveryAmount / 100).toLocaleString("en-IN")}`,
+      message: `Operator sign-off required for ${recoveryAction.actionType.replace(/_/g, " ")} on payment ${payment.providerPaymentId || payment.id}`,
+      metadata: {
+        recoveryActionId: recoveryAction.id,
+        paymentId: payment.id,
+        amount: expectedRecoveryAmount,
+      },
+    });
+  }
+
+  if (diagnosisData.riskLevel === RiskLevel.HIGH) {
+    await createNotification({
+      merchantId: payment.merchantId,
+      customerId: payment.customerId,
+      type: NotificationType.RISK_ALERT,
+      title: "High Risk Detected on Failed Payment",
+      message: `AI diagnostic flagged high risk on payment ${payment.providerPaymentId || payment.id}: ${diagnosisData.reasoning}`,
+      metadata: {
+        paymentId: payment.id,
+        riskLevel: diagnosisData.riskLevel,
+      },
+    });
+  }
 
   return {
     success: true,
