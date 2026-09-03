@@ -94,6 +94,79 @@ export interface ClientAiPolicyDecision {
   policyFlags: string[];
 }
 
+// ---------------------------------------------------------------------------
+// Recovery Analytics Types
+// ---------------------------------------------------------------------------
+
+export interface RecoveryAnalyticsFilters {
+  startDate?: string;
+  endDate?: string;
+  failureCategory?: FailureCategory;
+  actionType?: RecoveryActionType;
+}
+
+export interface CategoryRecoveryMetric {
+  category: FailureCategory;
+  opportunities: number;
+  revenueAtRisk: number; // in paise
+  expectedRecoverable: number; // in paise
+  recoveredRevenue: number; // in paise
+  recoveryRate: number; // percentage (0 - 100)
+}
+
+export interface ActionTypeRecoveryMetric {
+  actionType: RecoveryActionType;
+  opportunities: number;
+  executed: number;
+  failed: number;
+  recoveredRevenue: number; // in paise
+  successRate: number; // percentage (0 - 100)
+}
+
+export interface TrendPoint {
+  date: string; // YYYY-MM-DD
+  revenueAtRisk: number; // in paise
+  expectedRecoverable: number; // in paise
+  recoveredRevenue: number; // in paise
+  successfulRecoveries: number;
+}
+
+export interface AiPolicyAnalytics {
+  aiRecommendationsCount: number;
+  policyAcceptedCount: number;
+  policyRejectedCount: number;
+  approvalRequiredCount: number;
+  executedActionsCount: number;
+  avgConfidence: number; // 0 - 1
+  avgRecoveryProbability: number; // 0 - 1
+}
+
+export interface RecoveryAnalyticsData {
+  merchantId: string;
+  currency: string;
+  isSimulated: boolean;
+
+  // Top KPIs (in paise)
+  revenueAtRisk: number;
+  expectedRecoverable: number;
+  recoveredRevenue: number;
+  recoveryRate: number; // percentage (0 - 100)
+
+  // Secondary KPIs
+  totalRecoveryAttempts: number;
+  successfulRecoveries: number;
+  failedRecoveries: number;
+  pendingApprovalCount: number;
+  recoveryPipelineCount: number;
+  averageRecoveredAmount: number; // in paise
+
+  // Breakdowns & Trends
+  byCategory: CategoryRecoveryMetric[];
+  byActionType: ActionTypeRecoveryMetric[];
+  trend: TrendPoint[];
+  aiPolicy: AiPolicyAnalytics;
+}
+
 /**
  * Check whether a given role is allowed to perform operational actions (browser-safe).
  */

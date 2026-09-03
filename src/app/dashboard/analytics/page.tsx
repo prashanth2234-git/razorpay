@@ -1,16 +1,31 @@
+import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/server/auth";
 import { PageHeader } from "@/components/layout/page-header";
-import { Panel, PanelBody } from "@/components/ui/panel";
+import { getRecoveryAnalytics } from "@/server/analytics/recovery-analytics";
+import { AnalyticsClient } from "./analytics-client";
 
-export default function Page() {
+export const dynamic = "force-dynamic";
+
+export default async function AnalyticsPage() {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  // Load real server-side analytics scoped strictly to merchant
+  const analyticsData = await getRecoveryAnalytics(user.merchantId);
+
+  // Clean serialization across Server/Client SSR boundary
+  const serializedData = JSON.parse(JSON.stringify(analyticsData));
+
   return (
     <>
-      <PageHeader title="Analytics" description="Recovery performance over time." />
-      <Panel>
-        <PanelBody className="flex flex-col items-center gap-1 py-16 text-center">
-          <p className="text-[13.5px] font-medium text-ink">Coming in Milestone 9</p>
-          <p className="text-[13px] text-ink-muted">This screen is scaffolded and will be built out next.</p>
-        </PanelBody>
-      </Panel>
+      <PageHeader
+        title="Recovery Analytics"
+        description="Comprehensive real-time financial impact, recovery rates, and autonomous pipeline metrics."
+      />
+      <AnalyticsClient initialData={serializedData} />
     </>
   );
 }
