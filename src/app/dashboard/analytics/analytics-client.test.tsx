@@ -107,7 +107,7 @@ describe("Analytics Dashboard UI Component (Milestone 7 Step 11A)", () => {
     expect(screen.getByText("Recovered Revenue (Simulated)")).toBeDefined();
     expect(screen.getByText("₹16,500")).toBeDefined();
 
-    expect(screen.getByText("Recovery Rate")).toBeDefined();
+    expect(screen.getByText("Revenue Recovery Rate")).toBeDefined();
     expect(screen.getByText("66%")).toBeDefined();
   });
 

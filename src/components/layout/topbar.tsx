@@ -135,30 +135,41 @@ export function Topbar() {
   };
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface-raised px-5">
-      {/* Merchant Switcher */}
-      <button className="flex items-center gap-2 rounded-app border border-line-strong px-2.5 py-1.5 text-[13px] font-medium text-ink hover:bg-surface">
-        <span>{merchantName}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-ink-faint" />
-      </button>
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface-raised px-5 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+      {/* Merchant Context */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 rounded-app border border-line bg-surface/80 px-2.5 py-1.5 text-[12.5px] font-semibold text-ink shadow-2xs">
+          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-900 text-[9px] font-bold text-white">
+            K
+          </span>
+          <span className="max-w-[160px] truncate sm:max-w-none">{merchantName}</span>
+          <span className="rounded bg-emerald-50 px-1 py-0.2 text-[9.5px] font-bold uppercase tracking-wider text-emerald-700">
+            Verified
+          </span>
+        </div>
+      </div>
 
-      {/* Global Search */}
-      <div className="flex flex-1 items-center justify-center px-6">
-        <div className="relative w-full max-w-sm">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-faint" />
+      {/* Global Search with Keycap */}
+      <div className="flex flex-1 items-center justify-center px-4 max-w-lg">
+        <div className="relative w-full">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-faint" />
           <input
             type="search"
             placeholder="Search payments, customers, pay_id…"
-            className="h-8 w-full rounded-app border border-line bg-surface pl-8 pr-3 text-[13px] text-ink placeholder:text-ink-faint focus-visible:outline-2 focus-visible:outline-ai"
+            className="h-8.5 w-full rounded-app border border-line bg-surface pl-9 pr-12 text-[12.5px] text-ink placeholder:text-ink-faint transition-all focus:border-indigo-400 focus:bg-surface-raised focus:ring-2 focus:ring-indigo-100"
           />
+          <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-line-strong bg-surface-raised px-1.5 py-0.5 text-[10px] font-semibold text-ink-faint shadow-2xs">
+            ⌘K
+          </kbd>
         </div>
       </div>
 
       {/* Header Actions & Profile */}
       <div className="flex items-center gap-3">
-        <Badge tone="ai" dot>
-          Agent active
-        </Badge>
+        <div className="hidden items-center gap-1.5 rounded-full border border-indigo-200/60 bg-indigo-50/70 px-2.5 py-1 text-[11.5px] font-medium text-indigo-700 sm:flex">
+          <span className="h-1.5 w-1.5 rounded-full bg-indigo-600 animate-pulse" />
+          AI Engine Active
+        </div>
 
         {/* Notifications Dropdown */}
         <div className="relative">
@@ -168,24 +179,24 @@ export function Topbar() {
               setNotificationsOpen(!notificationsOpen);
               setMenuOpen(false);
             }}
-            className="relative flex h-8 w-8 items-center justify-center rounded-app text-ink-muted hover:bg-surface hover:text-ink"
+            className="relative flex h-8.5 w-8.5 items-center justify-center rounded-app border border-line text-ink-muted transition-colors hover:bg-surface hover:text-ink"
           >
             <Bell className="h-4 w-4" />
             {unreadCount > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-paper">
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600 px-1 text-[9.5px] font-bold text-white ring-2 ring-white">
                 {unreadCount > 9 ? "9+" : unreadCount}
               </span>
             )}
           </button>
 
           {notificationsOpen && (
-            <div className="absolute right-0 top-10 z-50 w-80 sm:w-96 rounded-app border border-line bg-surface-raised shadow-xl">
+            <div className="absolute right-0 top-11 z-50 w-80 sm:w-96 rounded-app border border-line bg-surface-raised shadow-xl ring-1 ring-black/5 animate-in fade-in-50 zoom-in-95 duration-100">
               {/* Header */}
-              <div className="flex items-center justify-between border-b border-line px-4 py-3">
+              <div className="flex items-center justify-between border-b border-line px-4 py-3 bg-surface/30">
                 <div className="flex items-center gap-2">
                   <h4 className="text-[13px] font-semibold text-ink">Notifications</h4>
                   {unreadCount > 0 && (
-                    <span className="rounded-full bg-danger-soft px-1.5 py-0.5 text-[10.5px] font-medium text-danger">
+                    <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700">
                       {unreadCount} unread
                     </span>
                   )}
@@ -193,7 +204,7 @@ export function Topbar() {
                 {unreadCount > 0 && (
                   <button
                     onClick={handleMarkAllRead}
-                    className="flex items-center gap-1 text-[11.5px] font-medium text-ai hover:underline"
+                    className="flex items-center gap-1 text-[11.5px] font-medium text-indigo-600 hover:text-indigo-800"
                   >
                     <CheckCheck className="h-3.5 w-3.5" />
                     <span>Mark all read</span>
@@ -213,7 +224,7 @@ export function Topbar() {
                       key={notif.id}
                       onClick={() => handleMarkRead(notif)}
                       className={`flex cursor-pointer items-start gap-3 p-3 text-left transition-colors hover:bg-surface ${
-                        !notif.read ? "bg-surface/50" : ""
+                        !notif.read ? "bg-indigo-50/20" : ""
                       }`}
                     >
                       <div className="mt-0.5">{getNotificationIcon(notif.type)}</div>
@@ -236,7 +247,7 @@ export function Topbar() {
                         </span>
                       </div>
                       {!notif.read && (
-                        <span className="h-2 w-2 rounded-full bg-ai shrink-0 mt-1.5" />
+                        <span className="h-2 w-2 rounded-full bg-indigo-600 shrink-0 mt-1.5" />
                       )}
                     </div>
                   ))
@@ -244,15 +255,15 @@ export function Topbar() {
               </div>
 
               {/* Footer */}
-              <div className="border-t border-line bg-surface p-2 text-center">
+              <div className="border-t border-line bg-surface/50 p-2.5 text-center">
                 <button
                   onClick={() => {
                     setNotificationsOpen(false);
                     router.push("/dashboard/audit-logs");
                   }}
-                  className="text-[11.5px] font-medium text-ink-muted hover:text-ink"
+                  className="text-[11.5px] font-medium text-indigo-600 hover:underline"
                 >
-                  View full audit trail →
+                  View full audit trail &rarr;
                 </button>
               </div>
             </div>
@@ -266,21 +277,21 @@ export function Topbar() {
               setMenuOpen(!menuOpen);
               setNotificationsOpen(false);
             }}
-            className="flex h-8 items-center gap-2 rounded-full border border-line-strong bg-surface px-1.5 py-1 text-[12px] font-medium text-ink hover:bg-line/40"
+            className="flex h-8.5 items-center gap-2 rounded-full border border-line bg-surface px-1.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-slate-200/60 shadow-2xs"
           >
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ink text-[11px] font-semibold text-paper">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-[11px] font-bold text-white shadow-xs">
               {initials}
             </span>
-            <span className="hidden pr-1 font-medium sm:inline">{userName.split(" ")[0]}</span>
-            <ChevronDown className="h-3 w-3 text-ink-faint" />
+            <span className="hidden pr-1 font-semibold text-[12.5px] sm:inline">{userName.split(" ")[0]}</span>
+            <ChevronDown className="h-3.5 w-3.5 text-ink-faint" />
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 top-10 z-50 w-56 rounded-app border border-line bg-surface-raised p-2 shadow-lg">
-              <div className="border-b border-line px-2 pb-2 pt-1">
+            <div className="absolute right-0 top-11 z-50 w-60 rounded-app border border-line bg-surface-raised p-2 shadow-xl ring-1 ring-black/5 animate-in fade-in-50 zoom-in-95 duration-100">
+              <div className="border-b border-line px-2 pb-2.5 pt-1.5">
                 <p className="text-[13px] font-semibold text-ink">{userName}</p>
-                <p className="text-[11.5px] text-ink-muted">{session?.user?.email || "operator@kaveri.in"}</p>
-                <div className="mt-1.5">
+                <p className="text-[11.5px] text-ink-muted truncate">{session?.user?.email || "operator@kaveri.in"}</p>
+                <div className="mt-2 flex items-center gap-1.5">
                   <Badge
                     tone={
                       userRole === "ADMIN"
@@ -292,13 +303,14 @@ export function Topbar() {
                   >
                     Role: {userRole}
                   </Badge>
+                  <span className="text-[10px] text-ink-faint">Merchant Admin</span>
                 </div>
               </div>
 
-              <div className="pt-1">
+              <div className="pt-1.5">
                 <button
                   onClick={() => signOut({ callbackUrl: "/login" })}
-                  className="flex w-full items-center gap-2 rounded-app px-2 py-1.5 text-left text-[12.5px] text-danger hover:bg-danger-soft"
+                  className="flex w-full items-center gap-2 rounded-app px-2.5 py-1.5 text-left text-[12.5px] font-medium text-rose-600 transition-colors hover:bg-rose-50"
                 >
                   <LogOut className="h-3.5 w-3.5" />
                   <span>Sign out</span>

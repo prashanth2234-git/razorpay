@@ -9,7 +9,7 @@ export function Panel({
   return (
     <div
       className={cn(
-        "rounded-app border border-line bg-surface-raised",
+        "rounded-app border border-line bg-surface-raised shadow-[0_1px_3px_rgba(0,0,0,0.03)] transition-shadow",
         className
       )}
       {...props}
@@ -43,9 +43,21 @@ export function PanelTitle({
   ...props
 }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
-    <h3 className={cn("text-[14px] font-semibold text-ink", className)} {...props}>
+    <h3 className={cn("text-[14px] font-semibold text-ink tracking-tight", className)} {...props}>
       {children}
     </h3>
+  );
+}
+
+export function PanelDescription({
+  className,
+  children,
+  ...props
+}: React.HTMLAttributes<HTMLParagraphElement>) {
+  return (
+    <p className={cn("text-[12px] text-ink-muted", className)} {...props}>
+      {children}
+    </p>
   );
 }
 
@@ -60,3 +72,4 @@ export function PanelBody({
     </div>
   );
 }
+

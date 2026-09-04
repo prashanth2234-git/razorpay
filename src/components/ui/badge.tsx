@@ -3,16 +3,16 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center gap-1.5 rounded-app border px-2 py-0.5 text-[12px] font-medium leading-5",
+  "inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-[11.5px] font-semibold leading-none tracking-tight transition-colors",
   {
     variants: {
       tone: {
-        neutral: "border-line-strong bg-surface text-ink-muted",
-        recovery: "border-recovery/25 bg-recovery-soft text-recovery",
-        risk: "border-risk/25 bg-risk-soft text-risk",
-        danger: "border-danger/25 bg-danger-soft text-danger",
-        ai: "border-ai/25 bg-ai-soft text-ai",
-        info: "border-info/25 bg-info-soft text-info",
+        neutral: "border-slate-200 bg-slate-100/80 text-slate-700",
+        recovery: "border-emerald-200/80 bg-emerald-50 text-emerald-700",
+        risk: "border-amber-200/80 bg-amber-50 text-amber-800",
+        danger: "border-rose-200/80 bg-rose-50 text-rose-700",
+        ai: "border-indigo-200/80 bg-indigo-50 text-indigo-700",
+        info: "border-blue-200/80 bg-blue-50 text-blue-700",
       },
     },
     defaultVariants: {
@@ -34,12 +34,12 @@ export function Badge({ className, tone, dot, children, ...props }: BadgeProps) 
         <span
           className={cn(
             "h-1.5 w-1.5 rounded-full",
-            tone === "recovery" && "bg-recovery",
-            tone === "risk" && "bg-risk",
-            tone === "danger" && "bg-danger",
-            tone === "ai" && "bg-ai",
-            tone === "info" && "bg-info",
-            (!tone || tone === "neutral") && "bg-ink-faint"
+            tone === "recovery" && "bg-emerald-600",
+            tone === "risk" && "bg-amber-600",
+            tone === "danger" && "bg-rose-600",
+            tone === "ai" && "bg-indigo-600",
+            tone === "info" && "bg-blue-600",
+            (!tone || tone === "neutral") && "bg-slate-400"
           )}
         />
       )}
@@ -47,3 +47,4 @@ export function Badge({ className, tone, dot, children, ...props }: BadgeProps) 
     </span>
   );
 }
+

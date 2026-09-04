@@ -3,23 +3,23 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-app text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-app text-sm font-semibold transition-all disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.99]",
   {
     variants: {
       variant: {
-        primary: "bg-ink text-paper hover:bg-ink/85",
-        recovery: "bg-recovery text-white hover:bg-recovery/90",
-        danger: "bg-danger text-white hover:bg-danger/90",
+        primary: "bg-slate-900 text-white shadow-xs hover:bg-slate-800 hover:shadow-sm",
+        recovery: "bg-emerald-600 text-white shadow-xs hover:bg-emerald-700 hover:shadow-sm",
+        danger: "bg-rose-600 text-white shadow-xs hover:bg-rose-700 hover:shadow-sm",
         outline:
-          "border border-line-strong bg-surface-raised text-ink hover:bg-surface",
-        ghost: "text-ink-muted hover:bg-surface hover:text-ink",
-        subtle: "bg-surface text-ink hover:bg-line/60",
+          "border border-line bg-surface-raised text-ink shadow-2xs hover:bg-slate-50 hover:border-line-strong",
+        ghost: "text-ink-muted hover:bg-slate-100 hover:text-ink",
+        subtle: "bg-slate-100 text-ink hover:bg-slate-200/70",
       },
       size: {
-        sm: "h-8 px-3 text-[13px]",
-        md: "h-9 px-4",
-        lg: "h-10 px-5",
-        icon: "h-9 w-9",
+        sm: "h-8 px-3 text-[12.5px]",
+        md: "h-9 px-4 text-[13px]",
+        lg: "h-10 px-5 text-[14px]",
+        icon: "h-8.5 w-8.5",
       },
     },
     defaultVariants: {
@@ -45,3 +45,4 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   }
 );
 Button.displayName = "Button";
+

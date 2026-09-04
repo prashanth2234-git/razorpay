@@ -198,8 +198,9 @@ export function AnalyticsClient({ initialData }: AnalyticsClientProps) {
           delta={21.3}
         />
         <Stat
-          label="Recovery Rate"
+          label="Revenue Recovery Rate"
           value={`${data.recoveryRate}%`}
+          subtitle="₹ recovered vs ₹ at risk"
           delta={4.2}
         />
         <Stat
